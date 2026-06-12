@@ -1,0 +1,32 @@
+{
+  "name": "stacksketch",
+  "version": "0.1.0",
+  "description": "Zero-config architecture maps for any codebase.",
+  "type": "commonjs",
+  "bin": {
+    "stacksketch": "./src/cli.js"
+  },
+  "files": [
+    "src",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node src/cli.js .",
+    "test": "node --test",
+    "prepack": "npm test"
+  },
+  "keywords": [
+    "architecture",
+    "code-map",
+    "developer-tool",
+    "visualization",
+    "cli",
+    "repo"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
