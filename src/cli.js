@@ -7,7 +7,7 @@ const { renderHtml } = require("./renderers");
 const { formatMarkdown } = require("./analyzer");
 const { parseInteger } = require("./utils");
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.2";
 
 async function main() {
   const args = process.argv.slice(2);
