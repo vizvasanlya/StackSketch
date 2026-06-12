@@ -7,10 +7,15 @@ test("renders a self-contained HTML report", () => {
     title: "Demo",
     generatedAt: "2026-06-12T00:00:00.000Z",
     summary: {
-      fileCount: 2,
+      totalFiles: 3,
+      sourceFiles: 2,
       scannedFiles: 2,
       maxFiles: 500,
-      totalLines: 12,
+      maxFilesReached: false,
+      totalLines: 14,
+      totalCodeLines: 12,
+      totalBlankLines: 1,
+      totalCommentLines: 1,
       totalBytes: 120,
       importEdges: 1,
       externalDependencies: 1,
@@ -24,13 +29,13 @@ test("renders a self-contained HTML report", () => {
     config: {},
     graph: {
       nodes: [
-        { id: "src/app.tsx", path: "src/app.tsx", name: "app.tsx", language: "TypeScript", lines: 10, loc: 10, bytes: 100, imports: ["react"], exports: ["App"], score: 40, external: false }
+        { id: "src/app.tsx", path: "src/app.tsx", name: "app.tsx", language: "TypeScript", lines: 10, codeLines: 10, loc: 10, blankLines: 0, commentLines: 0, bytes: 100, imports: ["react"], exports: ["App"], score: 40, external: false }
       ],
       edges: []
     },
     topFiles: [],
     directoryTree: { name: ".", type: "directory", children: [] },
-    humanSummary: { size: "120 B", lines: "12", files: "2", edges: "1", dependencies: "1" }
+    humanSummary: { size: "120 B", lines: "12", physicalLines: "14", files: "3", sourceFiles: "2", edges: "1", dependencies: "1" }
   });
 
   assert.ok(html.includes("Architecture snapshot"));

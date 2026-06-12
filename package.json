@@ -1,6 +1,6 @@
 {
   "name": "stacksketch-cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Zero-config architecture maps for any codebase.",
   "type": "commonjs",
   "bin": {

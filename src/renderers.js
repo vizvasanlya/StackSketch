@@ -181,6 +181,43 @@ function renderHtml(report) {
       color: white;
     }
 
+    .file-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      overflow: hidden;
+      border-radius: 14px;
+    }
+
+    .file-table th,
+    .file-table td {
+      padding: 8px 7px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .file-table th {
+      color: var(--muted);
+      font-weight: 600;
+      background: rgba(2, 6, 23, 0.35);
+    }
+
+    .file-table td:nth-child(3),
+    .file-table td:nth-child(4),
+    .file-table td:nth-child(5) {
+      text-align: right;
+    }
+
+    .file-table code {
+      color: #bfdbfe;
+      max-width: 170px;
+      display: inline-block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: bottom;
+    }
+
     .toolbar {
       display: flex;
       gap: 8px;
@@ -361,10 +398,23 @@ function renderHtml(report) {
       </div>
 
       <div class="stats">
-        <div class="stat"><strong>${escapeHtml(report.humanSummary.files)}</strong><span>Files</span></div>
-        <div class="stat"><strong>${escapeHtml(report.humanSummary.lines)}</strong><span>Lines</span></div>
+        <div class="stat"><strong>${escapeHtml(report.humanSummary.files)}</strong><span>Total files</span></div>
+        <div class="stat"><strong>${escapeHtml(report.humanSummary.sourceFiles)}</strong><span>Source files</span></div>
+        <div class="stat"><strong>${escapeHtml(report.humanSummary.lines)}</strong><span>Code lines</span></div>
+        <div class="stat"><strong>${escapeHtml(report.humanSummary.physicalLines)}</strong><span>Physical lines</span></div>
         <div class="stat"><strong>${escapeHtml(report.humanSummary.size)}</strong><span>Size</span></div>
         <div class="stat"><strong>${escapeHtml(report.humanSummary.edges)}</strong><span>Edges</span></div>
+      </div>
+
+      <div class="section">
+        <h2>Scan Scope</h2>
+        <div class="chips">
+          <span class="chip"><b>${escapeHtml(report.summary.maxFiles)}</b> max files</span>
+          <span class="chip">${report.summary.maxFilesReached ? "truncated" : "complete scan"}</span>
+          <span class="chip">${escapeHtml(report.summary.externalDependencies)} externals</span>
+          <span class="chip">${escapeHtml(report.summary.totalBlankLines.toLocaleString())} blank lines</span>
+          <span class="chip">${escapeHtml(report.summary.totalCommentLines.toLocaleString())} comment lines</span>
+        </div>
       </div>
 
       <input id="search" class="search" type="search" placeholder="Search files, languages, dependencies..." autocomplete="off">
@@ -385,9 +435,14 @@ function renderHtml(report) {
 
       <div class="section">
         <h2>Top Files</h2>
-        <div class="chips">
-          ${report.topFiles.slice(0, 10).map((file) => `<span class="chip"><b>${escapeHtml(file.loc)}</b> ${escapeHtml(file.path)}</span>`).join("")}
-        </div>
+        <table class="file-table">
+          <thead>
+            <tr><th>File</th><th>Lang</th><th>LOC</th><th>Imp</th><th>Exp</th></tr>
+          </thead>
+          <tbody>
+            ${report.topFiles.slice(0, 10).map((file) => `<tr><td><code title="${escapeAttr(file.path)}">${escapeHtml(file.path)}</code></td><td>${escapeHtml(file.language)}</td><td>${file.loc}</td><td>${file.imports.length}</td><td>${file.exports.length}</td></tr>`).join("")}
+          </tbody>
+        </table>
       </div>
 
       <div class="section">
@@ -413,7 +468,8 @@ function renderHtml(report) {
         <svg id="graph" role="img" aria-label="Architecture graph"></svg>
         <article class="details" id="details">
           <h3>Architecture snapshot</h3>
-          <p><b>${pluralize(report.summary.fileCount, "file")}</b> and <b>${pluralize(report.summary.importEdges, "edge")}</b> mapped from local imports.</p>
+          <p><b>${pluralize(report.summary.scannedFiles, "source file")}</b> scanned from <b>${pluralize(report.summary.totalFiles, "total file")}</b>.</p>
+          <p><b>${pluralize(report.summary.totalCodeLines || 0, "code line")}</b>, <b>${pluralize(report.summary.totalBlankLines, "blank line")}</b>, and <b>${pluralize(report.summary.totalCommentLines, "comment line")}</b> detected.</p>
           <p>Click any node to inspect imports, exports, LOC, and dependencies.</p>
         </article>
       </div>
@@ -575,7 +631,8 @@ function renderHtml(report) {
       if (!data) return;
       details.innerHTML = \`
         <h3>\${escapeHtml(data.path)}</h3>
-        <p><b>\${escapeHtml(data.language)}</b> · \${data.loc.toLocaleString()} LOC · \${data.bytes.toLocaleString()} bytes</p>
+        <p><b>\${escapeHtml(data.language)}</b> · \${data.loc.toLocaleString()} LOC · \${data.lines.toLocaleString()} physical lines · \${data.bytes.toLocaleString()} bytes</p>
+        <p>Blank: \${data.blankLines.toLocaleString()} · Comments: \${data.commentLines.toLocaleString()}</p>
         <p>Exports: \${data.exports.length ? data.exports.map(escapeHtml).join(", ") : "none detected"}</p>
         <p>Imports: \${data.imports.length ? data.imports.map(escapeHtml).join(", ") : "none detected"}</p>
         <p><code>\${escapeHtml(data.id)}</code></p>

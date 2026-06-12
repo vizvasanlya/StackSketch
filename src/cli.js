@@ -7,7 +7,7 @@ const { renderHtml } = require("./renderers");
 const { formatMarkdown } = require("./analyzer");
 const { parseInteger } = require("./utils");
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -61,7 +61,7 @@ async function main() {
     openFile(path.resolve(output));
   }
 
-  console.log(`Mapped ${report.summary.fileCount.toLocaleString()} files, ${report.summary.importEdges.toLocaleString()} local edges, and ${report.summary.externalDependencies.toLocaleString()} external dependencies.`);
+  console.log(`Mapped ${report.summary.scannedFiles.toLocaleString()} source files, ${report.summary.totalFiles.toLocaleString()} total files, ${report.summary.importEdges.toLocaleString()} local edges, and ${report.summary.externalDependencies.toLocaleString()} external dependencies.`);
 }
 
 function parseArgs(args) {

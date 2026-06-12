@@ -43,8 +43,10 @@ async function analyzeProject(rootPath = ".", options = {}) {
   const combinedIgnore = createMatcher([...ignorePatterns, ...gitignorePatterns]);
   const goModulePrefix = await readGoModulePrefix(path.join(root, "go.mod"));
 
-  const walkedFiles = await walkDirectory(root, combinedIgnore, include);
-  const selectedFiles = selectFiles(walkedFiles, maxFiles);
+  const scanResult = await scanDirectory(root, combinedIgnore, include);
+  const allFiles = scanResult;
+  const sourceFiles = allFiles.filter((file) => file.isSource && !file.binary).map((file) => file.relative);
+  const selectedFiles = selectFiles(sourceFiles, maxFiles);
   const fileReports = await Promise.all(
     selectedFiles.map(async (relative) => readFileReport(root, relative))
   );
@@ -123,10 +125,15 @@ async function analyzeProject(rootPath = ".", options = {}) {
     title: options.title || path.basename(root) || "StackSketch",
     generatedAt: new Date().toISOString(),
     summary: {
-      fileCount: sourceFileCount,
-      scannedFiles: walkedFiles.length,
+      totalFiles: allFiles.length,
+      sourceFiles: sourceFiles.length,
+      scannedFiles: selectedFiles.length,
       maxFiles,
+      maxFilesReached: sourceFiles.length > maxFiles,
       totalLines,
+      totalCodeLines: fileReports.reduce((sum, file) => sum + file.codeLines, 0),
+      totalBlankLines: fileReports.reduce((sum, file) => sum + file.blankLines, 0),
+      totalCommentLines: fileReports.reduce((sum, file) => sum + file.commentLines, 0),
       totalBytes,
       importEdges: localEdges.length,
       externalDependencies: externalNodes.length,
@@ -146,26 +153,29 @@ async function analyzeProject(rootPath = ".", options = {}) {
     directoryTree,
     humanSummary: {
       size: bytesToSize(totalBytes),
-      lines: totalLines.toLocaleString(),
-      files: sourceFileCount.toLocaleString(),
+      lines: fileReports.reduce((sum, file) => sum + file.codeLines, 0).toLocaleString(),
+      physicalLines: totalLines.toLocaleString(),
+      files: allFiles.length.toLocaleString(),
+      sourceFiles: sourceFiles.length.toLocaleString(),
       edges: localEdges.length.toLocaleString(),
       dependencies: externalNodes.length.toLocaleString()
     }
   };
 }
 
-async function walkDirectory(root, ignore, include, current = ".") {
+async function scanDirectory(root, ignore, include, current = ".") {
   const absolute = path.join(root, current);
   const entries = await fs.readdir(absolute, { withFileTypes: true });
   const files = [];
 
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     const relative = normalizeFilePath(path.join(current, entry.name));
-    if (relative === "." || ignore(relative)) continue;
+    if (relative === ".") continue;
+    if (ignore(relative)) continue;
 
     if (entry.isDirectory()) {
       if (!ignore(`${relative}/`)) {
-        files.push(...await walkDirectory(root, ignore, include, relative));
+        files.push(...await scanDirectory(root, ignore, include, relative));
       }
       continue;
     }
@@ -173,10 +183,13 @@ async function walkDirectory(root, ignore, include, current = ".") {
     if (!entry.isFile()) continue;
     if (!include(relative)) continue;
 
-    const content = await readPreview(path.join(root, relative));
-    if (isProbablySource(relative, content)) {
-      files.push(relative);
-    }
+    const preview = await readPreview(path.join(root, relative));
+    const isSource = !preview.binary && isProbablySource(relative, preview.content);
+    files.push({
+      relative,
+      isSource,
+      binary: preview.binary
+    });
   }
 
   return files;
@@ -184,10 +197,16 @@ async function walkDirectory(root, ignore, include, current = ".") {
 
 async function readPreview(filePath) {
   try {
-    const buffer = await fs.readFile(filePath, { encoding: "utf8" });
-    return buffer.slice(0, 8192);
+    const buffer = await fs.readFile(filePath);
+    if (buffer.includes(0)) {
+      return { content: "", binary: true };
+    }
+    return {
+      content: buffer.toString("utf8").slice(0, 8192),
+      binary: false
+    };
   } catch {
-    return "";
+    return { content: "", binary: true };
   }
 }
 
@@ -210,17 +229,16 @@ function scoreRelativePath(relativePathValue) {
 
 async function readFileReport(root, relative) {
   const absolute = path.join(root, relative);
-  const [content, stat] = await Promise.all([
-    fs.readFile(absolute, "utf8"),
+  const [buffer, stat] = await Promise.all([
+    fs.readFile(absolute),
     fs.stat(absolute)
   ]);
-  const lines = content.split(/\r?\n/);
-  const blankLines = lines.filter((line) => !line.trim()).length;
-  const codeLines = lines.length - blankLines;
-  const language = detectLanguage(relative, content);
+  const content = buffer.toString("utf8");
+  const lineMetrics = countLineMetrics(content, detectLanguage(relative, content));
+  const language = lineMetrics.language;
   const imports = extractImports(content, language).slice(0, IMPORT_LIMIT_PER_FILE);
   const exports = extractSymbols(content, language);
-  const loc = Math.max(1, codeLines);
+  const loc = Math.max(0, lineMetrics.codeLines);
   const score = loc * 2 + imports.length * 12 + exports.length * 18 + (isConfigFile(relative) ? 40 : 0);
 
   return {
@@ -228,14 +246,72 @@ async function readFileReport(root, relative) {
     path: relative,
     name: path.posix.basename(relative),
     language,
-    lines: lines.length,
+    lines: lineMetrics.lines,
+    codeLines: lineMetrics.codeLines,
     loc,
+    blankLines: lineMetrics.blankLines,
+    commentLines: lineMetrics.commentLines,
     bytes: stat.size,
     imports,
     exports,
     score,
     external: false
   };
+}
+
+function countLineMetrics(content, language) {
+  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const physicalLines = normalized.length === 0 ? 0 : normalized.split("\n").length - (normalized.endsWith("\n") ? 1 : 0);
+  const lines = physicalLines === 0 ? [] : normalized.slice(0, normalized.endsWith("\n") ? -1 : undefined).split("\n");
+  let blankLines = 0;
+  let commentLines = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      blankLines += 1;
+      continue;
+    }
+    if (isCommentLine(trimmed, language)) {
+      commentLines += 1;
+    }
+  }
+
+  return {
+    lines: physicalLines,
+    blankLines,
+    commentLines,
+    codeLines: Math.max(0, physicalLines - blankLines - commentLines),
+    language
+  };
+}
+
+function isCommentLine(trimmedLine, language) {
+  if (language === "JavaScript" || language === "TypeScript" || language === "Vue" || language === "Svelte") {
+    return trimmedLine.startsWith("//") || trimmedLine.startsWith("/*") || trimmedLine.startsWith("*") || trimmedLine.endsWith("*/");
+  }
+  if (language === "Python" || language === "Ruby" || language === "Shell" || language === "PowerShell" || language === "YAML" || language === "TOML" || language === "Dockerfile" || language === "Terraform") {
+    return trimmedLine.startsWith("#");
+  }
+  if (language === "Go" || language === "Rust" || language === "Java" || language === "C#" || language === "Kotlin" || language === "Scala" || language === "C" || language === "C++" || language === "C/C++ Header" || language === "Swift") {
+    return trimmedLine.startsWith("//") || trimmedLine.startsWith("/*") || trimmedLine.startsWith("*") || trimmedLine.endsWith("*/");
+  }
+  if (language === "PHP") {
+    return trimmedLine.startsWith("//") || trimmedLine.startsWith("#") || trimmedLine.startsWith("/*") || trimmedLine.startsWith("*") || trimmedLine.endsWith("*/");
+  }
+  if (language === "CSS" || language === "SCSS" || language === "Sass" || language === "Less") {
+    return trimmedLine.startsWith("/*") || trimmedLine.startsWith("*") || trimmedLine.endsWith("*/");
+  }
+  if (language === "SQL") {
+    return trimmedLine.startsWith("--") || trimmedLine.startsWith("/*") || trimmedLine.startsWith("*") || trimmedLine.endsWith("*/");
+  }
+  if (language === "HTML" || language === "Markdown") {
+    return trimmedLine.startsWith("<!--") || trimmedLine.startsWith("-->") || trimmedLine.includes("<!--") && trimmedLine.includes("-->");
+  }
+  if (language === "Lua") {
+    return trimmedLine.startsWith("--");
+  }
+  return false;
 }
 
 function buildModuleIndex(fileReports) {
@@ -546,10 +622,12 @@ function summarizeLanguages(fileReports) {
       name: file.language,
       files: 0,
       lines: 0,
+      physicalLines: 0,
       bytes: 0
     };
     current.files += 1;
-    current.lines += file.lines;
+    current.lines += file.codeLines;
+    current.physicalLines += file.lines;
     current.bytes += file.bytes;
     summary.set(file.language, current);
   }
@@ -666,7 +744,11 @@ function formatMarkdown(report) {
   lines.push("## Summary");
   lines.push("");
   lines.push(`- Files: ${report.humanSummary.files}`);
-  lines.push(`- Lines: ${report.humanSummary.lines}`);
+  lines.push(`- Source files scanned: ${report.humanSummary.sourceFiles}`);
+  lines.push(`- Code lines: ${report.humanSummary.lines}`);
+  lines.push(`- Physical lines: ${report.humanSummary.physicalLines}`);
+  lines.push(`- Blank lines: ${report.summary.totalBlankLines.toLocaleString()}`);
+  lines.push(`- Comment lines: ${report.summary.totalCommentLines.toLocaleString()}`);
   lines.push(`- Size: ${report.humanSummary.size}`);
   lines.push(`- Local edges: ${report.humanSummary.edges}`);
   lines.push(`- External dependencies: ${report.humanSummary.dependencies}`);
@@ -719,6 +801,7 @@ function escapeMermaid(value) {
 module.exports = {
   analyzeProject,
   buildDirectoryTree,
+  countLineMetrics,
   detectFrameworks,
   extractImports,
   extractSymbols,
