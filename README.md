@@ -139,11 +139,11 @@ stacksketch . --include src --include packages
 
 ### Languages
 
-JavaScript, TypeScript, Vue, Svelte, Python, Go, Rust, Java, C#, PHP, Ruby, Swift, Kotlin, Scala, C, C++, CSS, SCSS, HTML, JSON, YAML, TOML, Markdown, SQL, Shell, PowerShell, Dockerfile, Terraform, and Lua.
+JavaScript, TypeScript, Dart, Vue, Svelte, Python, Go, Rust, Java, C#, PHP, Ruby, Swift, Kotlin, Scala, C, C++, CSS, SCSS, HTML, JSON, YAML, TOML, Markdown, SQL, Shell, PowerShell, Dockerfile, Terraform, and Lua.
 
 ### Frameworks
 
-React, Next.js, Vite, Nuxt, Svelte, Vue, Express, NestJS, Fastify, Django, Flask, FastAPI, Tailwind CSS, Actix Web, Rocket, Gin, Echo, and Spring Boot.
+React, Next.js, Vite, Nuxt, Svelte, Vue, Flutter, Express, NestJS, Fastify, Django, Flask, FastAPI, Tailwind CSS, Actix Web, Rocket, Gin, Echo, and Spring Boot.
 
 ### Graph signals
 

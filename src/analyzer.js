@@ -21,6 +21,7 @@ const {
 } = require("./utils");
 
 const JS_EXTENSIONS = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"];
+const DART_EXTENSIONS = [".dart"];
 const IMPORT_LIMIT_PER_FILE = 80;
 const EDGE_LIMIT = 900;
 
@@ -221,8 +222,8 @@ function scoreRelativePath(relativePathValue) {
   const normalized = normalizeFilePath(relativePathValue);
   let score = 0;
   if (/^(src|lib|app|pages|components|routes|services|controllers|models|handlers)\//.test(normalized)) score += 50;
-  if (/\.(js|jsx|ts|tsx|py|go|rs|java|cs|php|rb)$/.test(normalized)) score += 20;
-  if (/^(package\.json|pyproject\.toml|Cargo\.toml|go\.mod|pom\.xml|build\.gradle)$/.test(normalized)) score += 30;
+  if (/\.(js|jsx|ts|tsx|dart|py|go|rs|java|cs|php|rb)$/.test(normalized)) score += 20;
+  if (/^(package\.json|pyproject\.toml|pubspec\.yaml|Cargo\.toml|go\.mod|pom\.xml|build\.gradle)$/.test(normalized)) score += 30;
   if (/test|spec|fixture|mock/i.test(normalized)) score -= 20;
   return score;
 }
@@ -287,7 +288,7 @@ function countLineMetrics(content, language) {
 }
 
 function isCommentLine(trimmedLine, language) {
-  if (language === "JavaScript" || language === "TypeScript" || language === "Vue" || language === "Svelte") {
+  if (language === "JavaScript" || language === "TypeScript" || language === "Vue" || language === "Svelte" || language === "Dart") {
     return trimmedLine.startsWith("//") || trimmedLine.startsWith("/*") || trimmedLine.startsWith("*") || trimmedLine.endsWith("*/");
   }
   if (language === "Python" || language === "Ruby" || language === "Shell" || language === "PowerShell" || language === "YAML" || language === "TOML" || language === "Dockerfile" || language === "Terraform") {
@@ -326,6 +327,7 @@ function buildModuleIndex(fileReports) {
     index.set(`${withoutExtension}/index.ts`, normalized);
     index.set(`${withoutExtension}/index.js`, normalized);
     index.set(`${withoutExtension}/index.jsx`, normalized);
+    for (const ext of DART_EXTENSIONS) index.set(`${withoutExtension}${ext}`, normalized);
   }
   return index;
 }
@@ -350,6 +352,33 @@ function resolveImport(root, importer, specifier, language, moduleIndex, goModul
       if (moduleIndex.has(relative)) return moduleIndex.get(relative);
       const without = stripExtension(relative);
       if (moduleIndex.has(without)) return moduleIndex.get(without);
+    }
+    return null;
+  }
+
+  if (language === "Dart") {
+    if (clean.startsWith(".")) {
+      const base = path.resolve(root, path.dirname(importer), clean);
+      const candidates = [];
+      const extension = path.extname(base);
+      if (extension) {
+        candidates.push(base);
+      } else {
+        for (const ext of DART_EXTENSIONS) candidates.push(`${base}${ext}`);
+      }
+      for (const candidate of candidates) {
+        const relative = normalizeFilePath(path.relative(root, candidate));
+        if (moduleIndex.has(relative)) return moduleIndex.get(relative);
+        const without = stripExtension(relative);
+        if (moduleIndex.has(without)) return moduleIndex.get(without);
+      }
+      return null;
+    }
+
+    if (clean.startsWith("package:")) {
+      const packagePath = clean.slice("package:".length);
+      const [, ...relativeParts] = packagePath.split("/");
+      return resolveDartModule(moduleIndex, path.posix.join("lib", ...relativeParts));
     }
     return null;
   }
@@ -398,6 +427,12 @@ function resolveRustModule(moduleIndex, relative) {
   return moduleIndex.get(`${normalized}.rs`) || moduleIndex.get(`${normalized}/mod.rs`) || null;
 }
 
+function resolveDartModule(moduleIndex, relative) {
+  const normalized = normalizeFilePath(relative);
+  const withExtension = normalized.endsWith(".dart") ? normalized : `${normalized}.dart`;
+  return moduleIndex.get(withExtension) || moduleIndex.get(stripExtension(withExtension)) || null;
+}
+
 function resolveExternalDependency(specifier, language, goModulePrefix) {
   const clean = stripQueryHash(specifier);
   if (!clean || clean.startsWith(".")) return null;
@@ -407,6 +442,12 @@ function resolveExternalDependency(specifier, language, goModulePrefix) {
       const parts = clean.split("/");
       return parts.slice(0, 2).join("/");
     }
+    return clean.split("/")[0];
+  }
+
+  if (language === "Dart") {
+    if (clean.startsWith("package:")) return clean.slice("package:".length).split("/")[0];
+    if (clean.startsWith("dart:")) return null;
     return clean.split("/")[0];
   }
 
@@ -436,6 +477,18 @@ function extractImports(content, language) {
     const requireRegex = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
     const exportRegex = /\bexport\s+[\s\S]*?\s+from\s*['"]([^'"]+)['"]/g;
     for (const regex of [importRegex, sideEffectRegex, dynamicRegex, requireRegex, exportRegex]) {
+      let match;
+      while ((match = regex.exec(content)) !== null) add(match[1]);
+    }
+  }
+
+  if (language === "Dart") {
+    const regexes = [
+      /^\s*import\s+['"]([^'"]+)['"]/gm,
+      /^\s*export\s+['"]([^'"]+)['"]/gm,
+      /^\s*part\s+['"]([^'"]+)['"]/gm
+    ];
+    for (const regex of regexes) {
       let match;
       while ((match = regex.exec(content)) !== null) add(match[1]);
     }
@@ -516,6 +569,24 @@ function extractSymbols(content, language) {
     }
   }
 
+  if (language === "Dart") {
+    const lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const classMatch = trimmed.match(/^\s*(?:abstract\s+)?(?:class|enum|extension|mixin|typedef)\s+([A-Za-z_]\w*)/);
+      if (classMatch) {
+        add(classMatch[1]);
+        continue;
+      }
+      if (!line.startsWith(" ") && !line.startsWith("\t")) {
+        const functionMatch = trimmed.match(/^(?:async\s+)?(?:[\w<>, ?]+\s+)?([A-Za-z_]\w*)\s*\([^;]*\)\s*(?:async|=>|\{)?/);
+        if (functionMatch && !["if", "for", "while", "switch", "catch", "return"].includes(functionMatch[1])) {
+          add(functionMatch[1]);
+        }
+      }
+    }
+  }
+
   if (language === "Python") {
     const regex = /^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)/gm;
     let match;
@@ -569,6 +640,7 @@ async function readConfig(root, relativeFiles) {
   const config = {
     packageJson: null,
     pyproject: null,
+    pubspec: null,
     cargoToml: null,
     goMod: null,
     gradle: null,
@@ -589,6 +661,13 @@ async function readConfig(root, relativeFiles) {
     config.pyproject = await fs.readFile(pyprojectPath, "utf8");
   } catch {
     config.pyproject = "";
+  }
+
+  const pubspecPath = path.join(root, "pubspec.yaml");
+  try {
+    config.pubspec = await fs.readFile(pubspecPath, "utf8");
+  } catch {
+    config.pubspec = "";
   }
 
   const cargoPath = path.join(root, "Cargo.toml");
@@ -663,6 +742,9 @@ function detectFrameworks(config, fileReports) {
     (name) => config.pyproject.includes("django") && "Django",
     (name) => config.pyproject.includes("flask") && "Flask",
     (name) => config.pyproject.includes("fastapi") && "FastAPI",
+    (name) => config.pubspec.includes("flutter:") && "Flutter",
+    (name) => config.pubspec.includes("sdk: flutter") && "Flutter",
+    (name) => relativeFiles.some((file) => file === "pubspec.yaml") && config.pubspec.includes("flutter") && "Flutter",
     (name) => relativeFiles.some((file) => /next\.config\.(js|mjs|ts)$/.test(file)) && "Next.js",
     (name) => relativeFiles.some((file) => /vite\.config\.(js|ts|mjs|mts)$/.test(file)) && "Vite",
     (name) => relativeFiles.some((file) => /tailwind\.config\.(js|ts)$/.test(file)) && "Tailwind CSS",

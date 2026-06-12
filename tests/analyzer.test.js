@@ -26,6 +26,36 @@ test("counts code, blank, and comment lines without counting final newlines twic
   assert.equal(metrics.commentLines, 1);
 });
 
+test("extracts Dart imports and exports", () => {
+  const content = `
+    import 'package:flutter/material.dart';
+    import 'package:my_app/src/counter.dart';
+    import './local_widget.dart';
+    export './exports.dart';
+
+    class CounterCubit extends Cubit<int> {}
+void increment() {}
+  `;
+  assert.deepEqual(extractImports(content, "Dart"), [
+    "package:flutter/material.dart",
+    "package:my_app/src/counter.dart",
+    "./local_widget.dart",
+    "./exports.dart"
+  ]);
+  assert.ok(extractSymbols(content, "Dart").includes("CounterCubit"));
+  assert.ok(extractSymbols(content, "Dart").includes("increment"));
+});
+
+test("resolves Dart package imports to lib files", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "stacksketch-dart-"));
+  await fs.mkdir(path.join(root, "lib", "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "lib", "src", "counter.dart"), "class CounterCubit {}");
+  const moduleIndex = new Map([["lib/src/counter.dart", "lib/src/counter.dart"]]);
+  assert.equal(
+    resolveImport(root, "lib/main.dart", "package:my_app/src/counter.dart", "Dart", moduleIndex, ""),
+    "lib/src/counter.dart"
+  );
+});
 test("resolves local TypeScript imports to indexed files", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "stacksketch-test-"));
   await fs.mkdir(path.join(root, "src", "components", "button"), { recursive: true });
@@ -58,6 +88,22 @@ test("analyzes a small multi-language project", async () => {
   assert.ok(report.graph.edges.some((edge) => edge.source === "src/app.tsx" && edge.target === "src/helper.ts"));
   assert.ok(report.graph.edges.some((edge) => edge.source === "src/app.tsx" && edge.target === "react"));
   assert.ok(!report.graph.nodes.some((node) => node.path === "node_modules/skip.js"));
+});
+
+test("analyzes a Flutter project with Dart lib files", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "stacksketch-flutter-"));
+  await fs.mkdir(path.join(root, "lib", "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "pubspec.yaml"), "name: my_app\nenvironment:\n  sdk: ^3.0.0\ndependencies:\n  flutter:\n    sdk: flutter\n");
+  await fs.writeFile(path.join(root, "lib", "main.dart"), "import 'package:flutter/material.dart';\nimport 'package:my_app/src/counter.dart';\nvoid main() {}\n");
+  await fs.writeFile(path.join(root, "lib", "src", "counter.dart"), "class CounterCubit {}\n");
+
+  const report = await analyzeProject(root, { maxFiles: 20 });
+
+  assert.equal(report.summary.sourceFiles, 3);
+  assert.ok(report.stack.languages.some((language) => language.name === "Dart"));
+  assert.ok(report.stack.frameworks.includes("Flutter"));
+  assert.ok(report.graph.edges.some((edge) => edge.source === "lib/main.dart" && edge.target === "lib/src/counter.dart"));
+  assert.ok(report.graph.edges.some((edge) => edge.source === "lib/main.dart" && edge.target === "flutter"));
 });
 
 test("reports truncation when max files is lower than source files", async () => {
