@@ -26,19 +26,19 @@ StackSketch takes the opposite approach:
 ## Quick start
 
 ```bash
-npx stacksketch .
+npx stacksketch-cli .
 ```
 
 This creates `stacksketch.html` in the current directory. Open it in a browser to explore the interactive architecture map.
 
 ```bash
-npx stacksketch ./my-app --open
+npx stacksketch-cli ./my-app --open
 ```
 
 ## Install globally
 
 ```bash
-npm install -g stacksketch
+npm install -g stacksketch-cli
 stacksketch .
 ```
 
