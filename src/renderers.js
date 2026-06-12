@@ -487,6 +487,19 @@ function renderHtml(report) {
     let scale = 1;
     let selectedId = null;
 
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(new RegExp("\\x60", "g"), "&#096;");
+    }
+
     const languageColors = ${JSON.stringify(LANGUAGE_COLORS).replace(/</g, "\\u003c")};
     const layout = layoutNodes(nodes, edges);
     renderGraph();

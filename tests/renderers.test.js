@@ -41,4 +41,6 @@ test("renders a self-contained HTML report", () => {
   assert.ok(html.includes("Architecture snapshot"));
   assert.ok(html.includes("Demo"));
   assert.ok(html.includes("<script id=\"report\""));
+  assert.ok(html.includes("function escapeHtml(value)"));
+  assert.ok(html.includes("function escapeAttr(value)"));
 });
