@@ -83,7 +83,7 @@ const CONFIG_FILES = new Set([
 ]);
 
 const DEFAULT_IGNORE_PATTERNS = [
-  ".git",
+  ".git/",
   "node_modules",
   "dist",
   "build",

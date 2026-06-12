@@ -17,10 +17,12 @@ const {
   stripExtension,
   stripQueryHash,
   topBy,
+  uniquePreserveOrder,
   uniqueSorted
 } = require("./utils");
 
 const JS_EXTENSIONS = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"];
+const CSS_EXTENSIONS = [".css", ".scss", ".sass", ".less"];
 const DART_EXTENSIONS = [".dart"];
 const IMPORT_LIMIT_PER_FILE = 80;
 const EDGE_LIMIT = 900;
@@ -36,11 +38,12 @@ async function analyzeProject(rootPath = ".", options = {}) {
   }
 
   const maxFiles = Math.max(1, parseInteger(options.maxFiles, 500));
-  const ignorePatterns = uniqueSorted([...DEFAULT_IGNORE_PATTERNS, ...(options.ignore || [])]);
+  const ignorePatterns = uniquePreserveOrder([...DEFAULT_IGNORE_PATTERNS, ...(options.ignore || [])]);
   const includePatterns = uniqueSorted(options.include || []);
   const ignore = createMatcher(ignorePatterns);
   const include = includePatterns.length ? createMatcher(includePatterns) : () => true;
-  const gitignorePatterns = await readGitignore(path.join(root, ".gitignore"));
+  const rootGitignorePatterns = await readGitignoreFile(path.join(root, ".gitignore"), root, ".");
+  const gitignorePatterns = [...rootGitignorePatterns, ...await readGitignorePatterns(root)];
   const combinedIgnore = createMatcher([...ignorePatterns, ...gitignorePatterns]);
   const goModulePrefix = await readGoModulePrefix(path.join(root, "go.mod"));
 
@@ -48,9 +51,15 @@ async function analyzeProject(rootPath = ".", options = {}) {
   const allFiles = scanResult;
   const sourceFiles = allFiles.filter((file) => file.isSource && !file.binary).map((file) => file.relative);
   const selectedFiles = selectFiles(sourceFiles, maxFiles);
-  const fileReports = await Promise.all(
-    selectedFiles.map(async (relative) => readFileReport(root, relative))
-  );
+  const fileReports = [];
+  for (const relative of selectedFiles) {
+    try {
+      fileReports.push(await readFileReport(root, relative));
+    } catch (error) {
+      if (error.code === "ENOENT" || error.code === "EACCES") continue;
+      throw error;
+    }
+  }
 
   const moduleIndex = buildModuleIndex(fileReports);
   const config = await readConfig(root, fileReports.map((report) => report.path));
@@ -120,10 +129,12 @@ async function analyzeProject(rootPath = ".", options = {}) {
   const totalBytes = fileReports.reduce((sum, file) => sum + file.bytes, 0);
   const sourceFileCount = fileReports.filter((file) => !file.external).length;
 
+  const rootName = path.basename(root) || "StackSketch";
+
   return {
-    name: options.title || path.basename(root) || "StackSketch",
-    root,
-    title: options.title || path.basename(root) || "StackSketch",
+    name: options.title || rootName,
+    root: rootName,
+    title: options.title || rootName,
     generatedAt: new Date().toISOString(),
     summary: {
       totalFiles: allFiles.length,
@@ -287,12 +298,29 @@ function countLineMetrics(content, language) {
   };
 }
 
+function isYamlCommentLine(trimmedLine) {
+  let quote = null;
+  for (let index = 0; index < trimmedLine.length; index += 1) {
+    const char = trimmedLine[index];
+    const previous = trimmedLine[index - 1];
+    if ((char === "'" || char === '"') && previous !== "\\") {
+      quote = quote === char ? null : (quote || char);
+      continue;
+    }
+    if (char === "#" && !quote) return true;
+  }
+  return false;
+}
+
 function isCommentLine(trimmedLine, language) {
   if (language === "JavaScript" || language === "TypeScript" || language === "Vue" || language === "Svelte" || language === "Dart") {
     return trimmedLine.startsWith("//") || trimmedLine.startsWith("/*") || trimmedLine.startsWith("*") || trimmedLine.endsWith("*/");
   }
-  if (language === "Python" || language === "Ruby" || language === "Shell" || language === "PowerShell" || language === "YAML" || language === "TOML" || language === "Dockerfile" || language === "Terraform") {
+  if (language === "Python" || language === "Ruby" || language === "Shell" || language === "PowerShell" || language === "TOML" || language === "Dockerfile" || language === "Terraform") {
     return trimmedLine.startsWith("#");
+  }
+  if (language === "YAML") {
+    return isYamlCommentLine(trimmedLine);
   }
   if (language === "Go" || language === "Rust" || language === "Java" || language === "C#" || language === "Kotlin" || language === "Scala" || language === "C" || language === "C++" || language === "C/C++ Header" || language === "Swift") {
     return trimmedLine.startsWith("//") || trimmedLine.startsWith("/*") || trimmedLine.startsWith("*") || trimmedLine.endsWith("*/");
@@ -327,6 +355,10 @@ function buildModuleIndex(fileReports) {
     index.set(`${withoutExtension}/index.ts`, normalized);
     index.set(`${withoutExtension}/index.js`, normalized);
     index.set(`${withoutExtension}/index.jsx`, normalized);
+    if (file.language === "Go") {
+      const directory = withoutExtension.includes("/") ? withoutExtension.slice(0, withoutExtension.lastIndexOf("/")) : "";
+      if (directory && !index.has(directory)) index.set(directory, normalized);
+    }
     for (const ext of DART_EXTENSIONS) index.set(`${withoutExtension}${ext}`, normalized);
   }
   return index;
@@ -344,8 +376,8 @@ function resolveImport(root, importer, specifier, language, moduleIndex, goModul
     if (extension) {
       candidates.push(base);
     } else {
-      for (const ext of JS_EXTENSIONS) candidates.push(`${base}${ext}`);
-      for (const ext of JS_EXTENSIONS) candidates.push(path.join(base, `index${ext}`));
+      for (const ext of [...JS_EXTENSIONS, ...CSS_EXTENSIONS]) candidates.push(`${base}${ext}`);
+      for (const ext of [...JS_EXTENSIONS, ...CSS_EXTENSIONS]) candidates.push(path.join(base, `index${ext}`));
     }
     for (const candidate of candidates) {
       const relative = normalizeFilePath(path.relative(root, candidate));
@@ -398,20 +430,28 @@ function resolveImport(root, importer, specifier, language, moduleIndex, goModul
   if (language === "Rust") {
     if (clean.startsWith("crate::") || clean.startsWith("self::") || clean.startsWith("super::")) {
       const parts = clean.replace(/^(crate|self)::/, "").replace(/^super::/, "").split("::").filter(Boolean);
-      const directory = clean.startsWith("super::") ? path.posix.dirname(importer) : path.posix.dirname(importer);
-      const relative = path.posix.join(directory, ...parts);
+      const directory = clean.startsWith("super::") ? path.posix.dirname(importer) : (clean.startsWith("crate::") ? "" : path.posix.dirname(importer));
+      const relative = directory ? path.posix.join(directory, ...parts) : path.posix.join(...parts);
       return resolveRustModule(moduleIndex, relative);
     }
     return null;
   }
 
   if (language === "Go") {
-    if (clean.startsWith(".") || clean.startsWith(goModulePrefix)) {
-      const suffix = goModulePrefix && clean.startsWith(`${goModulePrefix}/`) ? clean.slice(goModulePrefix.length + 1) : clean.replace(/^\.\//, "");
-      const relative = `${suffix.replaceAll(".", "/").replaceAll("-", "_")}.go`;
-      return moduleIndex.get(normalizeFilePath(relative)) || null;
+    let suffix = "";
+    if (clean.startsWith(".")) {
+      suffix = clean.replace(/^\.\//, "");
+    } else if (goModulePrefix && clean.startsWith(`${goModulePrefix}/`)) {
+      suffix = clean.slice(goModulePrefix.length + 1);
+    } else {
+      return null;
     }
-    return null;
+    const normalizedSuffix = suffix.replaceAll(".", "/");
+    return moduleIndex.get(normalizeFilePath(normalizedSuffix))
+      || moduleIndex.get(`${normalizeFilePath(normalizedSuffix)}.go`)
+      || moduleIndex.get(`${normalizeFilePath(normalizedSuffix)}/${path.posix.basename(normalizeFilePath(normalizedSuffix))}.go`)
+      || moduleIndex.get(`${normalizeFilePath(normalizedSuffix)}/pkg.go`)
+      || null;
   }
 
   return null;
@@ -457,10 +497,25 @@ function resolveExternalDependency(specifier, language, goModulePrefix) {
     return clean.split("/")[0];
   }
   if (language === "Rust") return clean.split("::")[0];
-  if (language === "Java" || language === "C#" || language === "Kotlin" || language === "Scala") return clean.split(".")[0];
+  if (language === "Java" || language === "Kotlin" || language === "Scala") {
+    if (isStandardJvmNamespace(clean)) return null;
+    return clean.split(".")[0];
+  }
+  if (language === "C#") {
+    if (isStandardCSharpNamespace(clean)) return null;
+    return clean.split(".")[0];
+  }
   if (language === "Ruby") return clean.split("/")[0];
   if (language === "PHP") return clean.split("\\")[0];
   return clean.split(/[/:]/)[0];
+}
+
+function isStandardJvmNamespace(value) {
+  return /^(java\.|javax\.|sun\.|com\.sun\.|org\.w3c\.|org\.xml\.|kotlin\.|scala\.)/.test(value);
+}
+
+function isStandardCSharpNamespace(value) {
+  return /^(System\.|Microsoft\.|Mono\.|Windows\.|System\.Windows\.)/.test(value);
 }
 
 function extractImports(content, language) {
@@ -557,15 +612,27 @@ function extractSymbols(content, language) {
 
   if (language === "JavaScript" || language === "TypeScript" || language === "Vue" || language === "Svelte") {
     const regexes = [
-      /\bexport\s+(?:async\s+)?function\s+([A-Za-z_$]\w*)/g,
-      /\bexport\s+(?:const|let|var)\s+([A-Za-z_$]\w*)/g,
-      /\bclass\s+([A-Za-z_$]\w*)/g,
-      /\binterface\s+([A-Za-z_$]\w*)/g,
-      /\btype\s+([A-Za-z_$]\w*)\s*=/g
+      /\bexport\s+(?:declare\s+)?(?:async\s+)?function\s+([A-Za-z_$]\w*)/g,
+      /\bexport\s+(?:declare\s+)?(?:const|let|var|class|interface|enum|type)\s+([A-Za-z_$]\w*)/g,
+      /\bexport\s+default\s+(?:async\s+)?function\s+([A-Za-z_$]\w*)/g,
+      /\bexport\s+default\s+class\s+([A-Za-z_$]\w*)/g,
+      /\bexport\s+default\s+([A-Za-z_$]\w*)/g,
+      /\bexport\s*\{([^}]+)\}/g
     ];
     for (const regex of regexes) {
       let match;
-      while ((match = regex.exec(content)) !== null) add(match[1]);
+      while ((match = regex.exec(content)) !== null) {
+        if (match[1] && ["function", "class"].includes(match[1])) continue;
+        if (regex.source.includes("export\\s*\\{")) {
+          match[1].split(",").forEach((item) => {
+            const cleaned = item.trim().replace(/^type\s+/, "");
+            const name = cleaned.split(/\s+as\s+/i)[1] || cleaned.split(/\s+/)[0];
+            add(name);
+          });
+        } else {
+          add(match[1]);
+        }
+      }
     }
   }
 
@@ -614,16 +681,59 @@ function extractSymbols(content, language) {
   return [...symbols].sort().slice(0, 80);
 }
 
-async function readGitignore(filePath) {
+async function readGitignorePatterns(root) {
+  const defaultIgnore = createMatcher(DEFAULT_IGNORE_PATTERNS);
+  const patterns = [];
+
+  async function visit(current = ".") {
+    const absolute = path.join(root, current);
+    let entries;
+    try {
+      entries = await fs.readdir(absolute, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const relative = normalizeFilePath(path.join(current, entry.name));
+      if (relative === "." || defaultIgnore(relative)) continue;
+
+      if (entry.isDirectory()) {
+        if (!defaultIgnore(`${relative}/`)) await visit(relative);
+        continue;
+      }
+
+      if (entry.isFile() && entry.name === ".gitignore") {
+        patterns.push(...await readGitignoreFile(path.join(absolute, entry.name), root, current));
+      }
+    }
+  }
+
+  await visit();
+  return patterns;
+}
+
+async function readGitignoreFile(filePath, root, gitignoreDirectory) {
   try {
     const content = await fs.readFile(filePath, "utf8");
+    const absoluteGitignoreDirectory = gitignoreDirectory === "." ? root : path.join(root, gitignoreDirectory);
+    const baseDirectory = gitignoreDirectory === "." ? "." : normalizeFilePath(path.relative(root, absoluteGitignoreDirectory));
     return content
       .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith("#"));
+      .map((line) => normalizeGitignorePattern(line.trim(), baseDirectory));
   } catch {
     return [];
   }
+}
+
+function normalizeGitignorePattern(line, baseDirectory) {
+  if (!line || line.startsWith("#")) return line;
+  const negated = line.startsWith("!");
+  const pattern = negated ? line.slice(1) : line;
+  if (pattern.startsWith("/")) return line;
+  if (!pattern.includes("/")) return line;
+  const prefix = baseDirectory && baseDirectory !== "." ? `${baseDirectory}/` : "";
+  return `${negated ? "!" : ""}${prefix}${pattern}`;
 }
 
 async function readGoModulePrefix(filePath) {
@@ -640,6 +750,7 @@ async function readConfig(root, relativeFiles) {
   const config = {
     packageJson: null,
     pyproject: null,
+    requirements: [],
     pubspec: null,
     cargoToml: null,
     goMod: null,
@@ -661,6 +772,16 @@ async function readConfig(root, relativeFiles) {
     config.pyproject = await fs.readFile(pyprojectPath, "utf8");
   } catch {
     config.pyproject = "";
+  }
+
+  const requirementsPath = path.join(root, "requirements.txt");
+  try {
+    config.requirements = (await fs.readFile(requirementsPath, "utf8"))
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#") && !line.startsWith("-"));
+  } catch {
+    config.requirements = [];
   }
 
   const pubspecPath = path.join(root, "pubspec.yaml");
@@ -722,6 +843,7 @@ function detectFrameworks(config, fileReports) {
   const frameworks = new Set();
   const relativeFiles = fileReports.map((file) => normalizeFilePath(file.path));
   const packageNames = new Set();
+  const requirements = new Set(config.requirements.map((item) => item.toLowerCase()));
 
   for (const section of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
     if (config.packageJson && config.packageJson[section]) {
@@ -739,9 +861,9 @@ function detectFrameworks(config, fileReports) {
     (name) => packageNames.has("express") && "Express",
     (name) => packageNames.has("@nestjs/core") && "NestJS",
     (name) => packageNames.has("fastify") && "Fastify",
-    (name) => config.pyproject.includes("django") && "Django",
-    (name) => config.pyproject.includes("flask") && "Flask",
-    (name) => config.pyproject.includes("fastapi") && "FastAPI",
+    (name) => (config.pyproject.includes("django") || requirements.has("django")) && "Django",
+    (name) => (config.pyproject.includes("flask") || requirements.has("flask")) && "Flask",
+    (name) => (config.pyproject.includes("fastapi") || requirements.has("fastapi")) && "FastAPI",
     (name) => config.pubspec.includes("flutter:") && "Flutter",
     (name) => config.pubspec.includes("sdk: flutter") && "Flutter",
     (name) => relativeFiles.some((file) => file === "pubspec.yaml") && config.pubspec.includes("flutter") && "Flutter",

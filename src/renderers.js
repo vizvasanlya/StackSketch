@@ -12,7 +12,11 @@ const {
 const { formatMarkdown } = require("./analyzer");
 
 function renderHtml(report) {
-  const payload = JSON.stringify(report).replace(/</g, "\\u003c");
+  const safeReport = { ...report, root: undefined };
+  const payload = JSON.stringify(safeReport).replace(/</g, "\\u003c");
+  const markdownPayload = JSON.stringify(formatMarkdown(safeReport)).replace(/</g, "\\u003c");
+  const languagePayload = JSON.stringify(LANGUAGE_COLORS).replace(/</g, "\\u003c");
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -23,157 +27,357 @@ function renderHtml(report) {
   <style>
     :root {
       color-scheme: dark;
-      --bg: #070a12;
+      --bg: #050816;
+      --bg-soft: #0b1020;
       --panel: rgba(15, 23, 42, 0.78);
-      --panel-strong: rgba(15, 23, 42, 0.96);
+      --panel-solid: rgba(15, 23, 42, 0.96);
+      --panel-strong: rgba(2, 6, 23, 0.92);
       --text: #e5e7eb;
       --muted: #94a3b8;
-      --line: rgba(148, 163, 184, 0.22);
-      --accent: #7c3aed;
+      --muted-2: #64748b;
+      --line: rgba(148, 163, 184, 0.18);
+      --accent: #8b5cf6;
       --accent-2: #22d3ee;
       --good: #34d399;
       --warn: #fbbf24;
       --danger: #fb7185;
-      --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
-      --radius: 22px;
+      --shadow: 0 24px 90px rgba(0, 0, 0, 0.42);
+      --radius: 24px;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
     * { box-sizing: border-box; }
 
-    body {
+    html, body {
+      width: 100%;
+      height: 100%;
       margin: 0;
-      min-height: 100vh;
-      background:
-        radial-gradient(circle at 12% 8%, rgba(124, 58, 237, 0.32), transparent 28rem),
-        radial-gradient(circle at 88% 18%, rgba(34, 211, 238, 0.20), transparent 26rem),
-        radial-gradient(circle at 50% 100%, rgba(16, 185, 129, 0.12), transparent 30rem),
-        var(--bg);
+      overflow: hidden;
+      background: var(--bg);
       color: var(--text);
     }
 
-    button, input {
+    body {
+      background:
+        radial-gradient(circle at 12% 8%, rgba(139, 92, 246, 0.34), transparent 34rem),
+        radial-gradient(circle at 88% 12%, rgba(34, 211, 238, 0.22), transparent 30rem),
+        radial-gradient(circle at 55% 100%, rgba(52, 211, 153, 0.12), transparent 34rem),
+        var(--bg);
+    }
+
+    button, input, select {
       font: inherit;
     }
 
+    button {
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      background: rgba(15, 23, 42, 0.72);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 9px 12px;
+      cursor: pointer;
+      transition: border-color .16s ease, background .16s ease, transform .16s ease;
+    }
+
+    button:hover {
+      border-color: rgba(34, 211, 238, 0.6);
+      background: rgba(30, 41, 59, 0.86);
+      transform: translateY(-1px);
+    }
+
+    button.primary {
+      border-color: rgba(34, 211, 238, 0.45);
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.9), rgba(34, 211, 238, 0.72));
+      color: white;
+      font-weight: 700;
+    }
+
+    input, select {
+      width: 100%;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      background: rgba(2, 6, 23, 0.58);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 11px 13px;
+      outline: none;
+    }
+
+    input:focus, select:focus {
+      border-color: rgba(34, 211, 238, 0.68);
+      box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.12);
+    }
+
     .app {
-      min-height: 100vh;
+      height: 100vh;
       display: grid;
-      grid-template-columns: minmax(300px, 390px) 1fr;
+      grid-template-rows: auto 1fr;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(320px, 1fr) auto;
       gap: 18px;
-      padding: 18px;
-    }
-
-    .sidebar, .panel {
-      border: 1px solid rgba(148, 163, 184, 0.18);
-      background: var(--panel);
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(2, 6, 23, 0.56);
       backdrop-filter: blur(20px);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-    }
-
-    .sidebar {
-      overflow: auto;
-      padding: 20px;
     }
 
     .brand {
+      min-width: 0;
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 18px;
+      gap: 14px;
     }
 
     .logo {
-      width: 42px;
-      height: 42px;
+      width: 46px;
+      height: 46px;
       display: grid;
       place-items: center;
-      border-radius: 14px;
+      flex: 0 0 auto;
+      border-radius: 16px;
       background: linear-gradient(135deg, var(--accent), var(--accent-2));
-      box-shadow: 0 14px 34px rgba(34, 211, 238, 0.22);
+      box-shadow: 0 18px 42px rgba(34, 211, 238, 0.22);
       font-weight: 900;
+      letter-spacing: -0.04em;
     }
 
     h1 {
       margin: 0;
-      font-size: 20px;
-      line-height: 1.1;
+      font-size: 19px;
+      line-height: 1.15;
       letter-spacing: -0.03em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .subtitle {
-      margin: 4px 0 0;
+      margin-top: 4px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .stats {
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 360px 1fr 360px;
+      gap: 14px;
+      padding: 14px;
+    }
+
+    .panel {
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: var(--radius);
+      background: var(--panel);
+      backdrop-filter: blur(22px);
+      box-shadow: var(--shadow);
+    }
+
+    .sidebar, .inspector {
+      padding: 18px;
+    }
+
+    .section {
+      margin-bottom: 20px;
+    }
+
+    .section:last-child { margin-bottom: 0; }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .stats-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 10px;
-      margin: 18px 0;
     }
 
-    .stat {
-      padding: 14px;
-      border: 1px solid rgba(148, 163, 184, 0.16);
-      border-radius: 16px;
-      background: rgba(2, 6, 23, 0.38);
+    .metric {
+      padding: 13px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 18px;
+      background: rgba(2, 6, 23, 0.36);
     }
 
-    .stat strong {
+    .metric strong {
       display: block;
       font-size: 20px;
-      letter-spacing: -0.03em;
+      letter-spacing: -0.04em;
     }
 
-    .stat span {
+    .metric span {
       display: block;
       margin-top: 3px;
       color: var(--muted);
       font-size: 12px;
     }
 
-    .search {
-      width: 100%;
-      border: 1px solid rgba(148, 163, 184, 0.24);
-      background: rgba(2, 6, 23, 0.55);
-      color: var(--text);
+    .filters {
+      display: grid;
+      gap: 8px;
+    }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 9px 10px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
       border-radius: 14px;
-      padding: 12px 14px;
-      outline: none;
+      background: rgba(2, 6, 23, 0.28);
+      color: #cbd5e1;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
     }
 
-    .search:focus {
-      border-color: rgba(34, 211, 238, 0.7);
-      box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.12);
+    .check input {
+      width: auto;
+      accent-color: var(--accent-2);
     }
 
-    .section {
-      margin-top: 20px;
+    .stage {
+      min-width: 0;
+      min-height: 0;
+      height: 100%;
+      display: grid;
+      grid-template-rows: 1fr;
+      gap: 14px;
     }
 
-    .section h2 {
-      margin: 0 0 10px;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
+    .canvas-panel {
+      min-height: 0;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: var(--radius);
+      background:
+        radial-gradient(circle at 50% 40%, rgba(34, 211, 238, 0.08), transparent 28rem),
+        rgba(15, 23, 42, 0.72);
+      backdrop-filter: blur(22px);
+      box-shadow: var(--shadow);
+    }
+
+    .canvas-toolbar {
+      position: absolute;
+      z-index: 5;
+      left: 14px;
+      right: 14px;
+      top: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .canvas-toolbar > * {
+      pointer-events: auto;
+    }
+
+    .status-pill {
+      max-width: 52%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(2, 6, 23, 0.68);
       color: var(--muted);
+      font-size: 12px;
+      backdrop-filter: blur(12px);
+    }
+
+    .canvas-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    canvas.dragging { cursor: grabbing; }
+
+    .empty-state {
+      position: absolute;
+      inset: 0;
+      display: none;
+      place-items: center;
+      text-align: center;
+      padding: 28px;
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    .empty-state strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--text);
+      font-size: 18px;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 7px;
+    }
+
+    .legend span {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
     }
 
     .chips {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 7px;
     }
 
     .chip {
-      border: 1px solid rgba(148, 163, 184, 0.18);
+      border: 1px solid rgba(148, 163, 184, 0.16);
       border-radius: 999px;
-      padding: 7px 10px;
+      padding: 6px 9px;
+      background: rgba(2, 6, 23, 0.32);
       color: #cbd5e1;
-      background: rgba(2, 6, 23, 0.35);
       font-size: 12px;
     }
 
@@ -181,311 +385,318 @@ function renderHtml(report) {
       color: white;
     }
 
+    .dot {
+      width: 9px;
+      height: 9px;
+      flex: 0 0 auto;
+      border-radius: 99px;
+      background: var(--dot);
+    }
+
     .file-table {
       width: 100%;
       border-collapse: collapse;
       font-size: 12px;
       overflow: hidden;
-      border-radius: 14px;
+      border-radius: 16px;
     }
 
-    .file-table th,
-    .file-table td {
+    .file-table th, .file-table td {
       padding: 8px 7px;
-      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
       text-align: left;
-      white-space: nowrap;
+      vertical-align: top;
     }
 
     .file-table th {
       color: var(--muted);
-      font-weight: 600;
-      background: rgba(2, 6, 23, 0.35);
+      font-weight: 700;
+      background: rgba(2, 6, 23, 0.32);
     }
 
     .file-table td:nth-child(3),
     .file-table td:nth-child(4),
     .file-table td:nth-child(5) {
       text-align: right;
+      color: #dbeafe;
     }
 
     .file-table code {
       color: #bfdbfe;
-      max-width: 170px;
+      max-width: 190px;
       display: inline-block;
       overflow: hidden;
       text-overflow: ellipsis;
-      vertical-align: bottom;
+      white-space: nowrap;
     }
 
-    .toolbar {
-      display: flex;
+    .dep-list {
+      display: grid;
       gap: 8px;
-      margin-bottom: 12px;
     }
 
-    .toolbar button, .copy-button {
-      border: 1px solid rgba(148, 163, 184, 0.22);
-      background: rgba(2, 6, 23, 0.48);
-      color: var(--text);
-      border-radius: 12px;
-      padding: 9px 11px;
-      cursor: pointer;
+    .dep {
+      padding: 9px 10px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      border-radius: 14px;
+      background: rgba(2, 6, 23, 0.32);
+      font-size: 12px;
     }
 
-    .toolbar button:hover, .copy-button:hover {
-      border-color: rgba(34, 211, 238, 0.55);
+    .dep b {
+      color: white;
     }
 
-    .canvas-wrap {
-      position: relative;
-      overflow: hidden;
-      border-radius: var(--radius);
-    }
-
-    svg {
+    .dep small {
       display: block;
-      width: 100%;
-      height: calc(100vh - 36px);
-      min-height: 720px;
-      background:
-        linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px);
-      background-size: 34px 34px;
-    }
-
-    .edge {
-      stroke: rgba(148, 163, 184, 0.18);
-      stroke-width: 1.1;
-    }
-
-    .edge.external {
-      stroke: rgba(34, 211, 238, 0.16);
-      stroke-dasharray: 5 7;
-    }
-
-    .node circle {
-      stroke: rgba(255, 255, 255, 0.75);
-      stroke-width: 1.2;
-      filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.35));
-      cursor: pointer;
-      transition: r 0.16s ease, opacity 0.16s ease;
-    }
-
-    .node text {
-      fill: rgba(226, 232, 240, 0.88);
+      margin-top: 3px;
+      color: var(--muted);
       font-size: 11px;
-      pointer-events: none;
-      paint-order: stroke;
-      stroke: rgba(7, 10, 18, 0.9);
-      stroke-width: 4px;
-      stroke-linejoin: round;
     }
 
-    .node.hidden, .edge.hidden {
-      opacity: 0.06;
-    }
-
-    .node.selected circle {
-      stroke: white;
-      stroke-width: 3;
-      r: 13;
-    }
-
-    .details {
-      position: absolute;
-      right: 18px;
-      bottom: 18px;
-      width: min(420px, calc(100% - 36px));
-      max-height: 52vh;
-      overflow: auto;
-      padding: 16px;
-      border: 1px solid rgba(148, 163, 184, 0.22);
+    .inspector-card {
+      padding: 15px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
       border-radius: 18px;
-      background: var(--panel-strong);
-      box-shadow: var(--shadow);
+      background: rgba(2, 6, 23, 0.36);
     }
 
-    .details h3 {
+    .inspector h2 {
       margin: 0 0 8px;
+      font-size: 17px;
+      letter-spacing: -0.02em;
       word-break: break-word;
     }
 
-    .details p {
-      margin: 6px 0;
+    .inspector p {
+      margin: 7px 0;
       color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px 14px;
+      margin-top: 12px;
       font-size: 13px;
     }
 
-    .details code {
-      color: #bfdbfe;
-      word-break: break-all;
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; text-align: right; color: #e0f2fe; }
+
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 12px;
+    }
+
+    .tag {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 999px;
+      padding: 6px 9px;
+      background: rgba(15, 23, 42, 0.72);
+      color: #cbd5e1;
+      font-size: 12px;
     }
 
     .tree {
       margin: 0;
       padding: 0;
       list-style: none;
-      font-size: 12px;
       color: #cbd5e1;
+      font-size: 12px;
     }
 
     .tree ul {
       margin: 0 0 0 14px;
       padding-left: 10px;
-      border-left: 1px solid rgba(148, 163, 184, 0.16);
+      border-left: 1px solid rgba(148, 163, 184, 0.12);
     }
 
     .tree li {
-      margin: 4px 0;
+      margin: 5px 0;
       white-space: nowrap;
     }
 
-    .tree .file {
-      color: #93c5fd;
-    }
+    .tree .file { color: #93c5fd; }
 
-    .legend {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 6px;
-    }
-
-    .legend span {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 99px;
-      background: var(--dot);
-    }
-
-    .footer {
-      margin-top: 18px;
-      color: var(--muted);
+    .hint {
+      color: var(--muted-2);
       font-size: 12px;
       line-height: 1.5;
     }
 
-    @media (max-width: 980px) {
-      .app {
+    .dependency-ring {
+      color: #67e8f9;
+    }
+
+    @media (max-width: 1280px) {
+      .workspace {
+        grid-template-columns: 320px 1fr;
+      }
+      .inspector {
+        display: none;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .topbar {
         grid-template-columns: 1fr;
       }
-      .sidebar {
-        order: 2;
+      .workspace {
+        grid-template-columns: 1fr;
+        overflow: auto;
       }
-      svg {
+      .panel, .canvas-panel {
         min-height: 620px;
       }
     }
   </style>
 </head>
 <body>
-  <main class="app">
-    <aside class="sidebar">
+  <div class="app">
+    <header class="topbar">
       <div class="brand">
         <div class="logo">S</div>
         <div>
           <h1>${escapeHtml(report.title)}</h1>
-          <p class="subtitle">Generated by StackSketch</p>
+          <div class="subtitle">Generated by StackSketch · ${escapeHtml(new Date(report.generatedAt).toLocaleString())}</div>
         </div>
       </div>
-
-      <div class="stats">
-        <div class="stat"><strong>${escapeHtml(report.humanSummary.files)}</strong><span>Total files</span></div>
-        <div class="stat"><strong>${escapeHtml(report.humanSummary.sourceFiles)}</strong><span>Source files</span></div>
-        <div class="stat"><strong>${escapeHtml(report.humanSummary.lines)}</strong><span>Code lines</span></div>
-        <div class="stat"><strong>${escapeHtml(report.humanSummary.physicalLines)}</strong><span>Physical lines</span></div>
-        <div class="stat"><strong>${escapeHtml(report.humanSummary.size)}</strong><span>Size</span></div>
-        <div class="stat"><strong>${escapeHtml(report.humanSummary.edges)}</strong><span>Edges</span></div>
-      </div>
-
-      <div class="section">
-        <h2>Scan Scope</h2>
-        <div class="chips">
-          <span class="chip"><b>${escapeHtml(report.summary.maxFiles)}</b> max files</span>
-          <span class="chip">${report.summary.maxFilesReached ? "truncated" : "complete scan"}</span>
-          <span class="chip">${escapeHtml(report.summary.externalDependencies)} externals</span>
-          <span class="chip">${escapeHtml(report.summary.totalBlankLines.toLocaleString())} blank lines</span>
-          <span class="chip">${escapeHtml(report.summary.totalCommentLines.toLocaleString())} comment lines</span>
-        </div>
-      </div>
-
-      <input id="search" class="search" type="search" placeholder="Search files, languages, dependencies..." autocomplete="off">
-
-      <div class="section">
-        <h2>Frameworks</h2>
-        <div class="chips">
-          ${report.stack.frameworks.length ? report.stack.frameworks.map((framework) => `<span class="chip">${escapeHtml(framework)}</span>`).join("") : `<span class="chip">Not detected</span>`}
-        </div>
-      </div>
-
-      <div class="section">
-        <h2>Languages</h2>
-        <div class="legend">
-          ${report.stack.languages.map((language) => `<span><i class="dot" style="--dot:${escapeAttr(LANGUAGE_COLORS[language.name] || "#94a3b8")}"></i><b>${escapeHtml(language.name)}</b> ${language.files}</span>`).join("")}
-        </div>
-      </div>
-
-      <div class="section">
-        <h2>Top Files</h2>
-        <table class="file-table">
-          <thead>
-            <tr><th>File</th><th>Lang</th><th>LOC</th><th>Imp</th><th>Exp</th></tr>
-          </thead>
-          <tbody>
-            ${report.topFiles.slice(0, 10).map((file) => `<tr><td><code title="${escapeAttr(file.path)}">${escapeHtml(file.path)}</code></td><td>${escapeHtml(file.language)}</td><td>${file.loc}</td><td>${file.imports.length}</td><td>${file.exports.length}</td></tr>`).join("")}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="section">
-        <h2>Directory</h2>
-        <ul class="tree">${renderTree(report.directoryTree)}</ul>
-      </div>
-
-      <p class="footer">
-        This report is generated locally. No source code is uploaded anywhere.
-        Open the HTML file in a browser to explore the architecture map.
-      </p>
-    </aside>
-
-    <section class="panel">
-      <div class="toolbar">
-        <button id="reset">Reset view</button>
-        <button id="zoomIn">Zoom in</button>
-        <button id="zoomOut">Zoom out</button>
-        <button id="download">Download SVG</button>
+      <div class="top-actions">
+        <button class="primary" id="download">Download SVG</button>
         <button id="copyMarkdown">Copy Markdown</button>
       </div>
-      <div class="canvas-wrap">
-        <svg id="graph" role="img" aria-label="Architecture graph"></svg>
-        <article class="details" id="details">
-          <h3>Architecture snapshot</h3>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel sidebar">
+        <div class="section">
+          <label class="section-title" for="search">Search</label>
+          <input id="search" type="search" placeholder="Search files, languages, symbols..." autocomplete="off">
+        </div>
+
+        <div class="section">
+          <div class="section-title">Metrics</div>
+          <div class="stats-grid">
+            <div class="metric"><strong>${escapeHtml(report.humanSummary.files)}</strong><span>Total files</span></div>
+            <div class="metric"><strong>${escapeHtml(report.humanSummary.sourceFiles)}</strong><span>Source files</span></div>
+            <div class="metric"><strong>${escapeHtml(report.humanSummary.lines)}</strong><span>Code lines</span></div>
+            <div class="metric"><strong>${escapeHtml(report.humanSummary.physicalLines)}</strong><span>Physical lines</span></div>
+            <div class="metric"><strong>${escapeHtml(report.humanSummary.size)}</strong><span>Size</span></div>
+            <div class="metric"><strong>${escapeHtml(report.humanSummary.edges)}</strong><span>Local edges</span></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Languages</div>
+          <div class="legend">${report.stack.languages.map((language) => `<span><i class="dot" style="--dot:${escapeAttr(LANGUAGE_COLORS[language.name] || "#94a3b8")}"></i><b>${escapeHtml(language.name)}</b> ${language.files}</span>`).join("")}</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Frameworks</div>
+          <div class="chips">${renderFrameworks(report)}</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Scan Scope</div>
+          <div class="chips">${renderScanScope(report)}</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Filters</div>
+          <div class="filters" id="languageFilters">${renderLanguageFilters(report)}</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Top Files</div>
+          <table class="file-table">
+            <thead><tr><th>File</th><th>Lang</th><th>LOC</th><th>Imp</th><th>Sym</th></tr></thead>
+            <tbody>${renderTopFiles(report)}</tbody>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">External Dependencies</div>
+          <div class="dep-list">${renderExternalDependencies(report)}</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Directory</div>
+          <ul class="tree">${renderTree(report.directoryTree)}</ul>
+        </div>
+
+        <p class="hint">Tip: drag empty space to pan, wheel to zoom, click a node to inspect. Use filters to focus large repositories.</p>
+      </aside>
+
+      <section class="stage">
+        <div class="canvas-panel">
+          <div class="canvas-toolbar">
+            <div class="status-pill" id="status">Loading architecture map...</div>
+            <div class="canvas-actions">
+              <button id="fit">Fit</button>
+              <button id="reset">Reset</button>
+              <label class="check"><input id="showExternals" type="checkbox" checked> Externals</label>
+              <label class="check"><input id="showLabels" type="checkbox"> Labels</label>
+            </div>
+          </div>
+          <canvas id="graph" aria-label="Architecture graph"></canvas>
+          <div class="empty-state" id="emptyState">
+            <div>
+              <strong>No nodes match the current filters</strong>
+              Clear search or enable more language filters.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel inspector">
+        <div id="inspectorContent" class="inspector-card">
+          <h2>Architecture snapshot</h2>
           <p><b>${pluralize(report.summary.scannedFiles, "source file")}</b> scanned from <b>${pluralize(report.summary.totalFiles, "total file")}</b>.</p>
           <p><b>${pluralize(report.summary.totalCodeLines || 0, "code line")}</b>, <b>${pluralize(report.summary.totalBlankLines, "blank line")}</b>, and <b>${pluralize(report.summary.totalCommentLines, "comment line")}</b> detected.</p>
-          <p>Click any node to inspect imports, exports, LOC, and dependencies.</p>
-        </article>
-      </div>
-    </section>
-  </main>
+          <p>Click any node to inspect its imports, symbols, LOC, blank lines, comments, and dependency relationships.</p>
+        </div>
+      </aside>
+    </main>
+  </div>
 
   <script id="report" type="application/json">${payload}</script>
   <script>
     const report = JSON.parse(document.getElementById("report").textContent);
-    const svg = document.getElementById("graph");
-    const details = document.getElementById("details");
+    const canvas = document.getElementById("graph");
+    const ctx = canvas.getContext("2d");
+    const status = document.getElementById("status");
+    const emptyState = document.getElementById("emptyState");
+    const inspector = document.getElementById("inspectorContent");
     const search = document.getElementById("search");
-    const nodes = report.graph.nodes;
-    const edges = report.graph.edges;
-    let scale = 1;
-    let selectedId = null;
+    const showExternals = document.getElementById("showExternals");
+    const showLabels = document.getElementById("showLabels");
+    const languageFilters = document.getElementById("languageFilters");
+    const nodes = report.graph.nodes || [];
+    const edges = report.graph.edges || [];
+    const languageColors = ${languagePayload};
+    const markdown = ${markdownPayload};
+    const layout = computeLayout(nodes, edges);
+    const state = {
+      scale: 1,
+      tx: 0,
+      ty: 0,
+      dragging: false,
+      dragStart: null,
+      hover: null,
+      selected: null,
+      query: "",
+      languages: new Set(report.stack.languages.map((item) => item.name)),
+      dpr: Math.max(1, window.devicePixelRatio || 1)
+    };
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -500,132 +711,429 @@ function renderHtml(report) {
       return escapeHtml(value).replace(new RegExp("\\x60", "g"), "&#096;");
     }
 
-    const languageColors = ${JSON.stringify(LANGUAGE_COLORS).replace(/</g, "\\u003c")};
-    const layout = layoutNodes(nodes, edges);
-    renderGraph();
-    bindControls();
-
-    function bindControls() {
-      document.getElementById("reset").addEventListener("click", () => {
-        scale = 1;
-        selectedId = null;
-        search.value = "";
-        renderGraph();
-      });
-      document.getElementById("zoomIn").addEventListener("click", () => {
-        scale = Math.min(scale * 1.18, 3.2);
-        renderGraph();
-      });
-      document.getElementById("zoomOut").addEventListener("click", () => {
-        scale = Math.max(scale / 1.18, 0.35);
-        renderGraph();
-      });
-      document.getElementById("download").addEventListener("click", downloadSvg);
-      document.getElementById("copyMarkdown").addEventListener("click", async () => {
-        const markdown = ${JSON.stringify(formatMarkdown(report)).replace(/</g, "\\u003c")};
-        await navigator.clipboard.writeText(markdown);
-        details.innerHTML = "<h3>Markdown copied</h3><p>Use it in a PR, README, or onboarding doc.</p>";
-      });
-      search.addEventListener("input", renderGraph);
+    function escapeXml(value) {
+      return escapeHtml(value).replace(/"/g, "&quot;");
     }
 
-    function renderGraph() {
-      const query = search.value.trim().toLowerCase();
-      const visibleNodes = new Set(nodes.filter((node) => !query || searchable(node).includes(query)).map((node) => node.id));
-      const visibleEdges = edges.filter((edge) => visibleNodes.has(edge.source) && visibleNodes.has(edge.target));
-      const width = Math.max(980, svg.clientWidth || 1200);
-      const height = Math.max(720, svg.clientHeight || 900);
-      const transform = \`translate(\${width / 2}, \${height / 2}) scale(\${scale})\`;
-      svg.setAttribute("viewBox", \`0 0 \${width} \${height}\`);
-      svg.innerHTML = \`<defs>
-        <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
-          <path d="M0,0 L8,4 L0,8 Z" fill="rgba(148,163,184,0.35)"></path>
-        </marker>
-      </defs><g transform="\${transform}">\${renderEdges(visibleEdges)}\${renderNodes(visibleNodes, visibleEdges)}</g>\`;
+    function stableHashLocal(value) {
+      let hash = 2166136261;
+      const text = String(value ?? "");
+      for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+      }
+      return hash >>> 0;
     }
 
-    function renderEdges(visibleEdges) {
-      return visibleEdges.map((edge) => {
-        const source = layout.get(edge.source);
-        const target = layout.get(edge.target);
-        if (!source || !target) return "";
-        const dx = target.x - source.x;
-        const dy = target.y - source.y;
-        const curve = Math.sqrt(dx * dx + dy * dy) * 0.18;
-        return \`<path class="edge \${edge.kind === "external" ? "external" : ""}" d="M \${source.x} \${source.y} C \${source.x + curve} \${source.y}, \${target.x - curve} \${target.y}, \${target.x} \${target.y}" marker-end="url(#arrow)"></path>\`;
-      }).join("");
+    function stableHash(value) {
+      return stableHashLocal(value);
     }
 
-    function renderNodes(visibleNodes, visibleEdges) {
-      const connected = new Set();
-      visibleEdges.forEach((edge) => {
-        connected.add(edge.source);
-        connected.add(edge.target);
-      });
-      return nodes.map((node) => {
-        const point = layout.get(node.id);
-        if (!point) return "";
-        const color = languageColors[node.language] || languageColors.Unknown || "#94a3b8";
-        const hidden = !visibleNodes.has(node.id);
-        const selected = selectedId === node.id ? "selected" : "";
-        const radius = Math.max(6, Math.min(18, 5 + Math.log10(node.score + 10) * 3.2));
-        return \`<g class="node \${hidden ? "hidden" : ""} \${selected}" transform="translate(\${point.x}, \${point.y})" data-id="\${escapeAttr(node.id)}">
-          <circle r="\${radius}" fill="\${color}"></circle>
-          <text y="\${radius + 14}" text-anchor="middle">\${escapeHtml(shortLabel(node.name || node.path))}</text>
-        </g>\`;
-      }).join("");
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      state.dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width = Math.max(1, Math.floor(rect.width * state.dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * state.dpr));
+      ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+      fit();
     }
 
-    function layoutNodes(nodes, edges) {
-      const byLanguage = new Map();
-      nodes.forEach((node) => {
-        const language = node.external ? "External" : node.language;
-        if (!byLanguage.has(language)) byLanguage.set(language, []);
-        byLanguage.get(language).push(node);
-      });
+    function fit() {
+      const rect = canvas.getBoundingClientRect();
+      const padding = 260;
+      state.scale = Math.max(0.06, Math.min(1.45, Math.min(rect.width, rect.height) / ((layout.bounds.radius || 1000) * 2 + padding * 2)));
+      state.tx = rect.width / 2;
+      state.ty = rect.height / 2;
+      draw();
+    }
 
-      const groups = [...byLanguage.entries()].sort((a, b) => b[1].length - a[1].length);
-      const layout = new Map();
-      const centerX = 0;
-      const centerY = 0;
-      const groupsCount = Math.max(1, groups.length);
-      const edgeCount = new Map();
-      edges.forEach((edge) => {
-        edgeCount.set(edge.source, (edgeCount.get(edge.source) || 0) + 1);
-        edgeCount.set(edge.target, (edgeCount.get(edge.target) || 0) + 1);
-      });
+    function worldToScreen(point) {
+      return { x: point.x * state.scale + state.tx, y: point.y * state.scale + state.ty };
+    }
 
-      groups.forEach(([language, group], groupIndex) => {
-        const angle = (Math.PI * 2 * groupIndex) / groupsCount - Math.PI / 2;
-        const groupWeight = group.reduce((sum, node) => sum + Math.log10(node.score + 10), 0);
-        const baseRadius = 190 + Math.min(420, Math.sqrt(groupWeight) * 8);
-        group.sort((a, b) => (edgeCount.get(b.id) || 0) - (edgeCount.get(a.id) || 0) || b.score - a.score);
-        group.forEach((node, index) => {
-          const spread = ((index + 0.5) / group.length) * Math.PI * 1.6 - Math.PI * 0.8;
-          const radial = baseRadius + ((stableHash(node.id) % 90) - 45);
-          const x = centerX + Math.cos(angle) * radial + Math.cos(spread) * 90;
-          const y = centerY + Math.sin(angle) * radial + Math.sin(spread) * 90;
-          layout.set(node.id, { x, y });
-        });
-      });
+    function screenToWorld(point) {
+      return { x: (point.x - state.tx) / state.scale, y: (point.y - state.ty) / state.scale };
+    }
 
-      return layout;
+    function nodeVisible(node) {
+      if (node.external && !showExternals.checked) return false;
+      if (!state.languages.has(node.language) && !node.external) return false;
+      if (state.query && !searchable(node).includes(state.query)) return false;
+      return true;
     }
 
     function searchable(node) {
-      return [node.id, node.name, node.path, node.language, ...(node.imports || []), ...(node.exports || [])].join(" ").toLowerCase();
+      return [node.id, node.path, node.name, node.language, ...(node.imports || []), ...(node.exports || [])].join(" ").toLowerCase();
+    }
+
+    function visibleNodes() {
+      return nodes.filter(nodeVisible);
+    }
+
+    function visibleEdges() {
+      const set = new Set(visibleNodes().map((node) => node.id));
+      return edges.filter((edge) => set.has(edge.source) && set.has(edge.target));
+    }
+
+    function draw() {
+      const rect = canvas.getBoundingClientRect();
+      const width = rect.width;
+      const height = rect.height;
+      ctx.clearRect(0, 0, width, height);
+      drawBackground(width, height);
+
+      const visible = visibleNodes();
+      const edgeList = visibleEdges();
+      const connected = new Set();
+      state.selected && edgeList.forEach((edge) => {
+        if (edge.source === state.selected || edge.target === state.selected) {
+          connected.add(edge.source);
+          connected.add(edge.target);
+        }
+      });
+
+      ctx.save();
+      ctx.translate(state.tx, state.ty);
+      ctx.scale(state.scale, state.scale);
+
+      if (layout.externalRadius) {
+        ctx.beginPath();
+        ctx.arc(0, 0, layout.externalRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(34,211,238,0.16)";
+        ctx.lineWidth = 1.4 / state.scale;
+        ctx.setLineDash([10 / state.scale, 10 / state.scale]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "rgba(34,211,238,0.08)";
+        ctx.fill();
+      }
+
+      for (const edge of edgeList) {
+        const source = layout.positions.get(edge.source);
+        const target = layout.positions.get(edge.target);
+        if (!source || !target) continue;
+        const selectedEdge = state.selected && (edge.source === state.selected || edge.target === state.selected);
+        ctx.beginPath();
+        ctx.moveTo(source.x, source.y);
+        ctx.lineTo(target.x, target.y);
+        ctx.strokeStyle = edge.kind === "external"
+          ? (selectedEdge ? "rgba(34,211,238,0.68)" : "rgba(34,211,238,0.22)")
+          : (selectedEdge ? "rgba(139,92,246,0.74)" : "rgba(148,163,184,0.18)");
+        ctx.lineWidth = selectedEdge ? 2.2 / state.scale : 1 / state.scale;
+        ctx.setLineDash(edge.kind === "external" ? [5 / state.scale, 8 / state.scale] : []);
+        ctx.stroke();
+      }
+
+      for (const node of visible) {
+        const point = layout.positions.get(node.id);
+        if (!point) continue;
+        const screen = worldToScreen(point);
+        if (screen.x < -80 || screen.x > width + 80 || screen.y < -80 || screen.y > height + 80) continue;
+        const selected = state.selected === node.id;
+        const connectedNode = connected.has(node.id);
+        const hovered = state.hover === node.id;
+        const radius = point.r || 7;
+        ctx.save();
+        ctx.shadowColor = selected || hovered ? "rgba(34,211,238,0.75)" : (node.external ? "rgba(34,211,238,0.35)" : "rgba(0,0,0,0.45)");
+        ctx.shadowBlur = selected || hovered ? 18 : (node.external ? 12 : 9);
+        if (node.external) {
+          const size = (radius + (hovered ? 3 : 0)) * 2;
+          roundRect(ctx, point.x - size / 2, point.y - size / 2, size, size, 5 / state.scale);
+          ctx.fillStyle = "rgba(34,211,238,0.92)";
+          ctx.globalAlpha = selected || hovered ? 1 : 0.78;
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, radius + (hovered ? 3 : 0), 0, Math.PI * 2);
+          ctx.fillStyle = languageColors[node.language] || languageColors.Unknown || "#94a3b8";
+          ctx.globalAlpha = selected || connectedNode || hovered ? 1 : 0.86;
+          ctx.fill();
+        }
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = (selected ? 4 : connectedNode ? 3 : hovered ? 2.5 : 1) / state.scale;
+        ctx.strokeStyle = selected ? "#ffffff" : connectedNode ? "#22d3ee" : hovered ? "#fbbf24" : "rgba(255,255,255,0.55)";
+        ctx.stroke();
+
+        if (showLabels.checked && (selected || hovered || connectedNode || layout.important.has(node.id))) {
+          const label = shortLabel(node.name || node.path);
+          ctx.font = "12px Inter, system-ui, sans-serif";
+          const metrics = ctx.measureText(label);
+          const x = point.x + radius + 7;
+          const y = point.y - 6;
+          ctx.fillStyle = "rgba(2,6,23,0.78)";
+          roundRect(ctx, x - 5, y - 12, metrics.width + 10, 18, 6);
+          ctx.fill();
+          ctx.fillStyle = "#e5e7eb";
+          ctx.fillText(label, x, y + 1);
+        }
+      }
+
+      ctx.restore();
+
+      if (visible.length === 0) {
+        emptyState.style.display = "grid";
+      } else {
+        emptyState.style.display = "none";
+      }
+
+      status.textContent = \`\${visible.length.toLocaleString()} nodes · \${edgeList.length.toLocaleString()} edges · \${Math.round(state.scale * 100)}% zoom\`;
+    }
+
+    function drawBackground(width, height) {
+      const gradient = ctx.createRadialGradient(width * 0.5, height * 0.42, 20, width * 0.5, height * 0.42, Math.max(width, height) * 0.7);
+      gradient.addColorStop(0, "rgba(34,211,238,0.06)");
+      gradient.addColorStop(1, "rgba(2,6,23,0)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.save();
+      ctx.globalAlpha = 0.32;
+      ctx.strokeStyle = "rgba(148,163,184,0.08)";
+      ctx.lineWidth = 1;
+      const step = 42 * state.scale;
+      const offset = state.tx % step;
+      for (let x = offset; x < width; x += step) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+      }
+      const yOffset = state.ty % step;
+      for (let y = yOffset; y < height; y += step) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function roundRect(context, x, y, width, height, radius) {
+      context.beginPath();
+      context.moveTo(x + radius, y);
+      context.arcTo(x + width, y, x + width, y + height, radius);
+      context.arcTo(x + width, y + height, x, y + height, radius);
+      context.arcTo(x, y + height, x, y, radius);
+      context.arcTo(x, y, x + width, y, radius);
+      context.closePath();
     }
 
     function shortLabel(value) {
       const text = String(value || "");
-      if (text.length <= 18) return text;
-      return text.slice(0, 15) + "...";
+      return text.length > 28 ? text.slice(0, 25) + "..." : text;
+    }
+
+    function pickNode(event) {
+      const rect = canvas.getBoundingClientRect();
+      const screen = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const world = screenToWorld(screen);
+      const visible = visibleNodes();
+      let best = null;
+      let bestDistance = Infinity;
+      for (const node of visible) {
+        const point = layout.positions.get(node.id);
+        if (!point) continue;
+        const dx = world.x - point.x;
+        const dy = world.y - point.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const threshold = (point.r || 7) + 10 / state.scale;
+        if (distance < threshold && distance < bestDistance) {
+          best = node;
+          bestDistance = distance;
+        }
+      }
+      return best;
+    }
+
+    function selectNode(node) {
+      state.selected = node ? node.id : null;
+      renderInspector(node);
+      draw();
+    }
+
+    function renderInspector(node) {
+      if (!node) {
+        inspector.innerHTML = \`
+          <h2>Architecture snapshot</h2>
+          <p><b>\${escapeHtml(pluralize(report.summary.scannedFiles, "source file"))}</b> scanned from <b>\${escapeHtml(pluralize(report.summary.totalFiles, "total file"))}</b>.</p>
+          <p><b>\${escapeHtml(report.humanSummary.lines)}</b> code lines, <b>\${escapeHtml(report.humanSummary.physicalLines)}</b> physical lines, and <b>\${escapeHtml(report.humanSummary.edges)}</b> local edges detected.</p>
+          <p>Click any node to inspect imports, symbols, LOC, blank lines, comments, and dependency relationships.</p>
+        \`;
+        return;
+      }
+
+      const imports = node.imports && node.imports.length ? node.imports.map(escapeHtml).join(", ") : "none detected";
+      const exports = node.exports && node.exports.length ? node.exports.map(escapeHtml).join(", ") : "none detected";
+      inspector.innerHTML = \`
+        <h2>\${escapeHtml(node.path)}</h2>
+        <p>\${escapeHtml(node.external ? "External dependency" : node.language)} · \${Number(node.loc || 0).toLocaleString()} LOC · \${Number(node.lines || 0).toLocaleString()} physical lines</p>
+        <div class="kv">
+          <dt>Bytes</dt><dd>\${Number(node.bytes || 0).toLocaleString()}</dd>
+          <dt>Blank lines</dt><dd>\${Number(node.blankLines || 0).toLocaleString()}</dd>
+          <dt>Comment lines</dt><dd>\${Number(node.commentLines || 0).toLocaleString()}</dd>
+          <dt>Imports</dt><dd>\${Number((node.imports || []).length).toLocaleString()}</dd>
+          <dt>Symbols</dt><dd>\${Number((node.exports || []).length).toLocaleString()}</dd>
+        </div>
+        <div class="section" style="margin-top:14px">
+          <div class="section-title">Imports</div>
+          <div class="tag-list">\${(node.imports || []).slice(0, 24).map((item) => \`<span class="tag">\${escapeHtml(item)}</span>\`).join("") || '<span class="tag">none</span>'}</div>
+        </div>
+        <div class="section">
+          <div class="section-title">Symbols</div>
+          <div class="tag-list">\${(node.exports || []).slice(0, 24).map((item) => \`<span class="tag">\${escapeHtml(item)}</span>\`).join("") || '<span class="tag">none</span>'}</div>
+        </div>
+      \`;
+    }
+
+    function computeLayout(nodes, edges) {
+      const positions = new Map();
+      const localNodes = nodes.filter((node) => !node.external);
+      const externalNodes = nodes.filter((node) => node.external);
+      const degree = new Map();
+      edges.forEach((edge) => {
+        degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
+        degree.set(edge.target, (degree.get(edge.target) || 0) + 1);
+      });
+
+      const groups = new Map();
+      localNodes.forEach((node) => {
+        const parts = String(node.path || node.id).split("/");
+        const key = parts.length > 2 ? parts.slice(0, 2).join("/") : parts[0] || "root";
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(node);
+      });
+
+      const sortedGroups = [...groups.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+      const groupCount = Math.max(1, sortedGroups.length);
+      const localSize = Math.max(1, localNodes.length);
+      const baseGraphSize = Math.max(2600, Math.sqrt(localSize) * 135, externalNodes.length * 34);
+      const maxRadius = baseGraphSize * 0.38;
+      const externalRadius = baseGraphSize * 0.47;
+
+      sortedGroups.forEach(([groupName, group], groupIndex) => {
+        const groupAngle = (Math.PI * 2 * groupIndex) / groupCount - Math.PI / 2;
+        const groupSize = Math.max(1, group.length);
+        const columns = Math.max(5, Math.ceil(Math.sqrt(groupSize)));
+        group.sort((a, b) => (degree.get(b.id) || 0) - (degree.get(a.id) || 0) || (b.score || 0) - (a.score || 0));
+        group.forEach((node, index) => {
+          const row = Math.floor(index / columns);
+          const col = index % columns;
+          const wedge = Math.PI * 0.95 / Math.max(1, columns);
+          const angle = groupAngle - Math.PI * 0.475 + col * wedge + wedge / 2;
+          const radial = 100 + row * 64 + ((stableHashLocal(node.id) % 20) - 10);
+          const radius = Math.max(10, Math.min(24, 8 + Math.log10((node.score || 1) + 10) * 3.2));
+          positions.set(node.id, {
+            x: Math.cos(angle) * radial + Math.cos(groupAngle) * 76,
+            y: Math.sin(angle) * radial + Math.sin(groupAngle) * 76,
+            vx: 0,
+            vy: 0,
+            r: radius
+          });
+        });
+      });
+
+      const nodeArray = [...positions.entries()].map(([id, point]) => ({ id, ...point }));
+      const edgeList = edges.filter((edge) => positions.has(edge.source) && positions.has(edge.target));
+      const iterations = Math.min(280, Math.max(130, nodeArray.length * 0.65));
+      const repulsion = 22000;
+      const attraction = 0.01;
+      const desiredDistance = 155;
+      const centerForce = 0.006;
+
+      for (let iteration = 0; iteration < iterations; iteration += 1) {
+        for (let i = 0; i < nodeArray.length; i += 1) {
+          const a = nodeArray[i];
+          for (let j = i + 1; j < nodeArray.length; j += 1) {
+            const b = nodeArray[j];
+            let dx = a.x - b.x;
+            let dy = a.y - b.y;
+            let distance = Math.sqrt(dx * dx + dy * dy) || 1;
+            const minDistance = a.r + b.r + 24;
+            if (distance < minDistance) {
+              const force = (minDistance - distance) * 0.22;
+              dx = (dx / distance) * force;
+              dy = (dy / distance) * force;
+              a.vx += dx; a.vy += dy;
+              b.vx -= dx; b.vy -= dy;
+            } else {
+              const force = repulsion / (distance * distance);
+              dx = (dx / distance) * force;
+              dy = (dy / distance) * force;
+              a.vx += dx; a.vy += dy;
+              b.vx -= dx; b.vy -= dy;
+            }
+          }
+        }
+
+        edgeList.forEach((edge) => {
+          const a = positions.get(edge.source);
+          const b = positions.get(edge.target);
+          if (!a || !b) return;
+          let dx = b.x - a.x;
+          let dy = b.y - a.y;
+          const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+          const force = (distance - desiredDistance) * attraction;
+          dx = (dx / distance) * force;
+          dy = (dy / distance) * force;
+          a.vx += dx; a.vy += dy;
+          b.vx -= dx; b.vy -= dy;
+        });
+
+        nodeArray.forEach((node) => {
+          const distance = Math.sqrt(node.x * node.x + node.y * node.y) || 1;
+          node.vx -= (node.x / distance) * centerForce * distance;
+          node.vy -= (node.y / distance) * centerForce * distance;
+          node.vx *= 0.82;
+          node.vy *= 0.82;
+          node.x += node.vx;
+          node.y += node.vy;
+          const nodeDistance = Math.sqrt(node.x * node.x + node.y * node.y);
+          const limit = maxRadius - node.r;
+          if (nodeDistance > limit) {
+            node.x = (node.x / nodeDistance) * limit;
+            node.y = (node.y / nodeDistance) * limit;
+          }
+        });
+      }
+
+      nodeArray.forEach((node) => positions.set(node.id, { x: node.x, y: node.y, r: node.r }));
+
+      externalNodes.sort((a, b) => (b.score || 0) - (a.score || 0) || a.id.localeCompare(b.id)).forEach((node, index) => {
+        const angle = (Math.PI * 2 * index) / Math.max(1, externalNodes.length) - Math.PI / 2;
+        const radius = externalRadius + (stableHashLocal(node.id) % 90);
+        positions.set(node.id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius, vx: 0, vy: 0, r: 12 });
+      });
+
+      const important = new Set([...nodes].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 120).map((node) => node.id));
+      return { positions, important, externalRadius, bounds: { radius: externalRadius + 280 } };
     }
 
     function downloadSvg() {
-      const clone = svg.cloneNode(true);
-      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml;charset=utf-8" });
+      const visible = visibleNodes();
+      const edgeList = visibleEdges().slice(0, 5000);
+      const radius = (layout.externalRadius || layout.bounds.radius) + 260;
+      const size = radius * 2;
+      const padding = 120;
+      const important = new Set([...nodes].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 180).map((node) => node.id));
+      let svg = \`<svg xmlns="http://www.w3.org/2000/svg" width="\${size + padding * 2}" height="\${size + padding * 2}" viewBox="\${-radius - padding} \${-radius - padding} \${size + padding * 2} \${size + padding * 2}">
+        <rect width="100%" height="100%" fill="#050816"/>
+        <title>\${escapeXml(report.title)} architecture map</title>
+        <desc>\${escapeXml(visible.length)} nodes and \${escapeXml(edgeList.length)} edges</desc>\`;
+
+      for (const edge of edgeList) {
+        const source = layout.positions.get(edge.source);
+        const target = layout.positions.get(edge.target);
+        if (!source || !target) continue;
+        svg += \`<path d="M \${source.x} \${source.y} L \${target.x} \${target.y}" stroke="\${edge.kind === "external" ? "#22d3ee" : "#94a3b8"}" stroke-opacity="0.22" stroke-width="1" fill="none"/>\`;
+      }
+
+      for (const node of visible) {
+        const point = layout.positions.get(node.id);
+        if (!point) continue;
+        const color = languageColors[node.language] || languageColors.Unknown || "#94a3b8";
+        svg += \`<circle cx="\${point.x}" cy="\${point.y}" r="\${point.r || 7}" fill="\${color}" stroke="rgba(255,255,255,0.65)" stroke-width="1"/>\`;
+        if (important.has(node.id) || state.selected === node.id) {
+          svg += \`<text x="\${point.x + (point.r || 7) + 8}" y="\${point.y + 4}" fill="#e5e7eb" font-size="12" font-family="Inter, sans-serif">\${escapeXml(shortLabel(node.name || node.path))}</text>\`;
+        }
+      }
+
+      svg += \`</svg>\`;
+      const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -636,33 +1144,166 @@ function renderHtml(report) {
       URL.revokeObjectURL(url);
     }
 
-    svg.addEventListener("click", (event) => {
-      const node = event.target.closest && event.target.closest(".node");
-      if (!node) return;
-      selectedId = node.dataset.id;
-      const data = nodes.find((item) => item.id === selectedId);
-      if (!data) return;
-      details.innerHTML = \`
-        <h3>\${escapeHtml(data.path)}</h3>
-        <p><b>\${escapeHtml(data.language)}</b> · \${data.loc.toLocaleString()} LOC · \${data.lines.toLocaleString()} physical lines · \${data.bytes.toLocaleString()} bytes</p>
-        <p>Blank: \${data.blankLines.toLocaleString()} · Comments: \${data.commentLines.toLocaleString()}</p>
-        <p>Exports: \${data.exports.length ? data.exports.map(escapeHtml).join(", ") : "none detected"}</p>
-        <p>Imports: \${data.imports.length ? data.imports.map(escapeHtml).join(", ") : "none detected"}</p>
-        <p><code>\${escapeHtml(data.id)}</code></p>
-      \`;
-      renderGraph();
+    async function copyText(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (error) {}
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      let copied = false;
+      try { copied = document.execCommand("copy"); } catch (error) {}
+      textarea.remove();
+      return copied;
+    }
+
+    canvas.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mouse = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const before = screenToWorld(mouse);
+      const factor = event.deltaY < 0 ? 1.12 : 0.88;
+      state.scale = Math.max(0.05, Math.min(4, state.scale * factor));
+      state.tx = mouse.x - before.x * state.scale;
+      state.ty = mouse.y - before.y * state.scale;
+      draw();
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", (event) => {
+      const node = pickNode(event);
+      if (node) {
+        selectNode(node);
+        return;
+      }
+      state.dragging = true;
+      state.dragStart = { x: event.clientX, y: event.clientY, tx: state.tx, ty: state.ty };
+      canvas.classList.add("dragging");
     });
+
+    window.addEventListener("mousemove", (event) => {
+      if (state.dragging && state.dragStart) {
+        state.tx = state.dragStart.tx + event.clientX - state.dragStart.x;
+        state.ty = state.dragStart.ty + event.clientY - state.dragStart.y;
+        draw();
+      } else {
+        const node = pickNode(event);
+        if (state.hover !== (node && node.id)) {
+          state.hover = node ? node.id : null;
+          canvas.style.cursor = node ? "pointer" : "grab";
+          draw();
+        }
+      }
+    });
+
+    window.addEventListener("mouseup", () => {
+      state.dragging = false;
+      state.dragStart = null;
+      canvas.classList.remove("dragging");
+      canvas.style.cursor = state.hover ? "pointer" : "grab";
+    });
+
+    search.addEventListener("input", () => {
+      state.query = search.value.trim().toLowerCase();
+      draw();
+    });
+
+    showExternals.addEventListener("change", draw);
+    showLabels.addEventListener("change", draw);
+    languageFilters.addEventListener("change", () => {
+      state.languages = new Set([...languageFilters.querySelectorAll("input:checked")].map((input) => input.value));
+      draw();
+    });
+
+    document.getElementById("fit").addEventListener("click", fit);
+    document.getElementById("reset").addEventListener("click", () => {
+      search.value = "";
+      state.query = "";
+      state.selected = null;
+      state.hover = null;
+      showExternals.checked = true;
+      showLabels.checked = false;
+      languageFilters.querySelectorAll("input").forEach((input) => { input.checked = true; });
+      state.languages = new Set(report.stack.languages.map((item) => item.name));
+      fit();
+      renderInspector(null);
+    });
+    document.getElementById("download").addEventListener("click", downloadSvg);
+    document.getElementById("copyMarkdown").addEventListener("click", async () => {
+      const copied = await copyText(markdown);
+      inspector.innerHTML = copied
+        ? "<h2>Markdown copied</h2><p>Use it in a PR, README, or onboarding doc.</p>"
+        : "<h2>Markdown not copied</h2><p>Clipboard permission was blocked by the browser.</p>";
+    });
+
+    window.addEventListener("resize", resize);
+    resize();
+    renderInspector(null);
   </script>
 </body>
-</html>
-`;
+</html>`;
+}
+
+function renderFrameworks(report) {
+  if (!report.stack.frameworks.length) return `<span class="chip">Not detected</span>`;
+  return report.stack.frameworks.map((framework) => `<span class="chip"><b>${escapeHtml(framework)}</b></span>`).join("");
+}
+
+function renderScanScope(report) {
+  return [
+    `<span class="chip"><b>${escapeHtml(report.summary.maxFiles)}</b> max files</span>`,
+    `<span class="chip">${report.summary.maxFilesReached ? "truncated" : "complete scan"}</span>`,
+    `<span class="chip">${escapeHtml(report.summary.externalDependencies)} externals</span>`,
+    `<span class="chip">${escapeHtml(report.summary.totalBlankLines.toLocaleString())} blank lines</span>`,
+    `<span class="chip">${escapeHtml(report.summary.totalCommentLines.toLocaleString())} comment lines</span>`
+  ].join("");
+}
+
+function renderLanguageFilters(report) {
+  return report.stack.languages.map((language) => `
+    <label class="check">
+      <input type="checkbox" value="${escapeAttr(language.name)}" checked>
+      <span>${escapeHtml(language.name)}</span>
+      <b>${language.files}</b>
+    </label>
+  `).join("");
+}
+
+function renderTopFiles(report) {
+  return report.topFiles.slice(0, 12).map((file) => `
+    <tr>
+      <td><code title="${escapeAttr(file.path)}">${escapeHtml(file.path)}</code></td>
+      <td>${escapeHtml(file.language)}</td>
+      <td>${file.loc}</td>
+      <td>${file.imports.length}</td>
+      <td>${file.exports.length}</td>
+    </tr>
+  `).join("");
+}
+
+function renderExternalDependencies(report) {
+  const deps = report.graph.nodes.filter((node) => node.external).slice(0, 18);
+  if (!deps.length) return `<div class="dep"><b>No external dependencies</b><small>Detected from local imports.</small></div>`;
+  return deps.map((dep) => `
+    <div class="dep">
+      <b>${escapeHtml(dep.name || dep.id)}</b>
+      <small>${Number(dep.count || dep.lines || 0).toLocaleString()} import references</small>
+    </div>
+  `).join("");
 }
 
 function renderTree(node) {
   if (!node) return "";
   const className = node.type === "file" ? "file" : "";
   const label = node.path ? `<code>${escapeHtml(node.path)}</code>` : escapeHtml(node.name);
-  const children = (node.children || []).slice(0, 16).map(renderTree).join("");
+  const children = (node.children || []).slice(0, 18).map(renderTree).join("");
   return `<li class="${className}">${label}${children ? `<ul>${children}</ul>` : ""}</li>`;
 }
 

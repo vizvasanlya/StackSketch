@@ -6,8 +6,9 @@ const { analyzeProject } = require("./analyzer");
 const { renderHtml } = require("./renderers");
 const { formatMarkdown } = require("./analyzer");
 const { parseInteger } = require("./utils");
+const { version: PACKAGE_VERSION } = require("../package.json");
 
-const VERSION = "0.1.5";
+const VERSION = PACKAGE_VERSION;
 
 async function main() {
   const args = process.argv.slice(2);
@@ -104,6 +105,9 @@ function parseArgs(args) {
       const value = args[++index];
       if (!value) return { error: "Missing value for --format." };
       options.format = value.toLowerCase();
+      if (!["html", "md", "markdown", "json"].includes(options.format)) {
+        return { error: `Invalid format "${value}". Use html, md, or json.` };
+      }
       continue;
     }
     if (arg === "--title") {
@@ -115,6 +119,7 @@ function parseArgs(args) {
     if (arg === "--max-files") {
       const value = args[++index];
       if (!value) return { error: "Missing value for --max-files." };
+      if (!/^\d+$/.test(value)) return { error: `Invalid value for --max-files: "${value}".` };
       options.maxFiles = parseInteger(value, 500);
       continue;
     }
@@ -132,6 +137,9 @@ function parseArgs(args) {
     }
     if (arg.startsWith("-")) {
       return { error: `Unknown option "${arg}".` };
+    }
+    if (options.root !== ".") {
+      return { error: `Multiple project roots are not supported: "${options.root}" and "${arg}".` };
     }
     options.root = arg;
   }
@@ -172,6 +180,7 @@ Usage:
 Options:
   -o, --output <path>     Output file. Defaults to stacksketch.html
   --format <html|md|json> Output format. Defaults to extension or html
+  --html                  Write stacksketch.html
   --json                  Write stacksketch.json
   --md, --markdown        Write stacksketch.md
   --open                  Open the HTML report after generation
@@ -185,6 +194,7 @@ Options:
 Examples:
   stacksketch .
   stacksketch ./my-app --open
+  stacksketch . --html
   stacksketch . --format md --output architecture.md
   stacksketch . --ignore playground --max-files 1200
 `);

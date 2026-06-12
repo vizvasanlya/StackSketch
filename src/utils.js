@@ -52,17 +52,37 @@ function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
+function uniquePreserveOrder(values) {
+  const seen = new Set();
+  const result = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
 function pluralize(count, singular, plural = `${singular}s`) {
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
 }
 
 function parseInteger(value, fallback) {
   const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) && String(parsed) === String(value).trim() ? parsed : fallback;
 }
 
-function patternToRegExp(pattern) {
-  let normalized = normalizePath(pattern.trim());
+function unescapeGitignorePattern(pattern) {
+  return pattern.replace(/\\([ #!])/g, "$1");
+}
+
+function patternToRule(pattern) {
+  let normalized = normalizePath(String(pattern).trim());
+  if (!normalized || normalized.startsWith("#")) return null;
+
+  const negated = normalized.startsWith("!");
+  if (negated) normalized = normalized.slice(1);
+  normalized = unescapeGitignorePattern(normalized.trim());
   if (!normalized) return null;
 
   const anchored = normalized.startsWith("/") || normalized.startsWith("**/");
@@ -73,21 +93,30 @@ function patternToRegExp(pattern) {
   const escaped = normalized
     .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
     .replace(/\*\*/g, ".*")
-    .replace(/\*/g, "[^/]*")
+    .replace(/\*/g, "[^/]+")
     .replace(/\?/g, "[^/]");
 
   const body = anchored ? `^${escaped}(/.*)?$` : `(^|/)${escaped}(/.*)?$`;
-  return new RegExp(directoryOnly ? `^${escaped}(/.*)?$` : body, "i");
+  return {
+    negated,
+    regex: new RegExp(directoryOnly ? `^${escaped}(/.*)?$` : body, "i")
+  };
 }
 
 function createMatcher(patterns = []) {
-  const regexes = patterns
-    .map(patternToRegExp)
+  const rules = patterns
+    .map(patternToRule)
     .filter(Boolean);
 
   return function matches(relativePath) {
     const normalized = normalizePath(relativePath || "");
-    return regexes.some((regex) => regex.test(normalized));
+    let ignored = false;
+    for (const rule of rules) {
+      if (rule.regex.test(normalized)) {
+        ignored = !rule.negated;
+      }
+    }
+    return ignored;
   };
 }
 
@@ -103,12 +132,13 @@ module.exports = {
   escapeAttr,
   escapeHtml,
   parseInteger,
-  patternToRegExp,
+  patternToRule,
   pluralize,
   relativePath,
   stableHash,
   stripExtension,
   stripQueryHash,
   topBy,
+  uniquePreserveOrder,
   uniqueSorted
 };

@@ -2,7 +2,7 @@
 
 **Turn any codebase into a beautiful architecture map in one command.**
 
-StackSketch is a zero-dependency CLI that scans a repository locally, detects languages/frameworks, extracts imports, builds a dependency graph, and exports a polished HTML report, Markdown summary, or JSON dataset.
+StackSketch is a zero-dependency CLI that scans a repository locally, detects languages/frameworks, extracts best-effort imports, builds a dependency graph for supported ecosystems, and exports a polished HTML report, Markdown summary, or JSON dataset.
 
 It is designed for the moment developers love to share: new project onboarding, PR context, architecture reviews, open-source READMEs, and “look how clean this codebase is” screenshots.
 
@@ -20,7 +20,7 @@ StackSketch takes the opposite approach:
 - runs locally,
 - uploads nothing,
 - has no runtime dependencies,
-- works across JavaScript, TypeScript, Python, Go, Rust, Java, C#, PHP, Ruby, and more,
+- works across JavaScript, TypeScript, Python, Go, Rust, Java, C#, PHP, Ruby, and more for language detection, with local dependency edges for JavaScript/TypeScript, Dart, Python, Rust, Go, and CSS assets,
 - produces a visual report that is useful and shareable.
 
 ## Quick start
@@ -87,6 +87,7 @@ stacksketch [root] [options]
 | --- | --- |
 | `-o, --output <path>` | Output file. Defaults to `stacksketch.html`. |
 | `--format <html\|md\|json>` | Output format. Defaults to file extension or HTML. |
+| `--html` | Write `stacksketch.html`. |
 | `--json` | Write `stacksketch.json`. |
 | `--md, --markdown` | Write `stacksketch.md`. |
 | `--open` | Open the HTML report after generation. |
@@ -147,13 +148,13 @@ React, Next.js, Vite, Nuxt, Svelte, Vue, Flutter, Express, NestJS, Fastify, Djan
 
 ### Graph signals
 
-- local imports,
-- external dependencies,
+- local imports for supported languages,
+- external dependency signals for supported import styles,
 - top files by LOC/import/export weight,
 - language distribution,
 - directory structure,
 - file size and line count,
-- exported symbols.
+- best-effort exported symbols,
 
 ## What makes it different
 
@@ -176,12 +177,24 @@ The JSON output is a compact map of a repository that can be used as context for
 ## Development
 
 ```bash
-npm install
+npm install --ignore-scripts
+npm run check
 npm test
+npm run smoke
 npm start
 ```
 
 `npm start` scans the StackSketch repository itself and writes `stacksketch.html`.
+
+Before publishing, run:
+
+```bash
+npm run check
+npm test
+npm run smoke
+npm pack --dry-run
+DRY_RUN=1 ./scripts/publish.sh
+```
 
 ## Packaging
 
@@ -190,32 +203,29 @@ npm pack
 npm publish
 ```
 
-The package includes only the CLI source, scripts, README, and license.
+The package includes the CLI source, scripts, README, changelog, contributing guide, and license.
 
-## Launch checklist
+## Current status
 
-Use this checklist when publishing the first version:
+StackSketch is usable as a local CLI and npm package. The project is not yet a full multi-language AST parser: language detection is broad, while local dependency resolution is strongest for JavaScript/TypeScript, Dart, Python, Rust, Go, and CSS assets.
 
-1. Create a GitHub repository named `stacksketch`.
-2. Add the generated `stacksketch.html` from this repo as a demo screenshot.
-3. Pin a short demo GIF in the README hero.
-4. Post the first release on developer communities with the hook: “I built a zero-dependency CLI that turns any repo into an architecture map.”
-5. Add a “Generated with StackSketch” section to your own README.
-6. Submit to CLI, visualization, and developer-tool directories.
-7. Invite maintainers of medium-sized open-source projects to generate and share their maps.
-8. Add examples for React, Next.js, Python, Go, and Rust repos.
-9. Track issues asking for language support and prioritize the most requested ecosystems.
-10. Release `v0.2.0` with GitHub URL support once the local CLI has traction.
+Generated HTML and Markdown reports use display-friendly project names instead of embedding absolute local filesystem paths.
 
 ## Roadmap
 
+Planned work:
+
 - GitHub URL input.
-- Mermaid and Graphviz export.
+- Graphviz export.
 - Plugin system for custom parsers.
 - CI badge generation.
 - Multi-repo monorepo views.
 - Architecture smell detection.
 - Local LLM-assisted summary mode with explicit opt-in.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development commands, test expectations, and contribution areas.
 
 ## License
 

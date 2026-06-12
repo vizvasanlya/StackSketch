@@ -17,6 +17,14 @@ build
 !.env.example
 .DS_Store
 Thumbs.db
+.vscode
+.idea
+.cache
+out
+*.tgz
+*.log
+*.tmp
+*.swp
 stacksketch.html
 stacksketch.md
 stacksketch.json

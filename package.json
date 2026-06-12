@@ -1,8 +1,17 @@
 {
   "name": "stacksketch-cli",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Zero-config architecture maps for any codebase.",
   "type": "commonjs",
+  "author": "StackSketch contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vizvasanlya/StackSketch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vizvasanlya/StackSketch/issues"
+  },
+  "homepage": "https://github.com/vizvasanlya/StackSketch#readme",
   "bin": {
     "stacksketch": "src/cli.js",
     "stacksketch-cli": "src/cli.js"
@@ -11,12 +20,16 @@
     "src",
     "scripts",
     "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
     "LICENSE"
   ],
   "scripts": {
     "start": "node src/cli.js .",
+    "check": "node --check src/analyzer.js && node --check src/cli.js && node --check src/defaults.js && node --check src/renderers.js && node --check src/utils.js && node --check tests/analyzer.test.js && node --check tests/cli.test.js && node --check tests/renderers.test.js",
+    "smoke": "node src/cli.js . --format json --output tmp/stacksketch-smoke.json --max-files 20",
     "test": "node --test",
-    "prepack": "npm test"
+    "prepack": "npm run check && npm test && npm run smoke"
   },
   "keywords": [
     "architecture",
