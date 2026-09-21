@@ -16,6 +16,15 @@
     "stacksketch": "src/cli.js",
     "stacksketch-cli": "src/cli.js"
   },
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./renderers": "./src/renderers.js",
+    "./analyzer": "./src/analyzer.js",
+    "./samples": "./src/samples.js",
+    "./defaults": "./src/defaults.js",
+    "./package.json": "./package.json"
+  },
   "files": [
     "src",
     "scripts",
@@ -25,8 +34,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "start": "node src/cli.js .",
-    "check": "node --check src/analyzer.js && node --check src/cli.js && node --check src/defaults.js && node --check src/renderers.js && node --check src/utils.js && node --check tests/analyzer.test.js && node --check tests/cli.test.js && node --check tests/renderers.test.js",
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "node src/cli.js . -o dist/index.html",
+    "cli": "node src/cli.js",
+    "check": "node --check src/index.js && node --check src/analyzer.js && node --check src/cli.js && node --check src/defaults.js && node --check src/renderers.js && node --check src/utils.js && node --check src/samples.js && node --check tests/analyzer.test.js && node --check tests/cli.test.js && node --check tests/renderers.test.js && node --check tests/server.test.js && node --check server.js",
+    "lint": "npm run check",
     "smoke": "node src/cli.js . --format json --output tmp/stacksketch-smoke.json --max-files 20",
     "test": "node --test",
     "prepack": "npm run check && npm test && npm run smoke"

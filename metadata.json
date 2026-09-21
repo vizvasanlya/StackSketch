@@ -1,0 +1,6 @@
+{
+  "name": "StackSketch",
+  "description": "Zero-config architecture maps for any codebase, generating interactive visual dependency graphs, framework detection, and reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

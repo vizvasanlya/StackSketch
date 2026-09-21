@@ -56,3 +56,15 @@ test("renders a self-contained HTML report", () => {
   renderHtml({ ...report, graph: { nodes, edges: [] } });
   assert.deepEqual(nodes, [{ id: "b", path: "b", score: 1 }]);
 });
+
+test("exports programmatic API from src/index.js", () => {
+  const index = require("../src/index");
+  assert.equal(typeof index.analyzeProject, "function");
+  assert.equal(typeof index.formatMarkdown, "function");
+  assert.equal(typeof index.renderHtml, "function");
+  assert.ok(index.SAMPLE_PROJECTS);
+  assert.ok(index.LANGUAGE_COLORS);
+  assert.ok(index.DEFAULT_IGNORE_PATTERNS);
+  assert.equal(typeof index.version, "string");
+});
+
