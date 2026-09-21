@@ -45,6 +45,7 @@ test("renders a self-contained HTML report", () => {
   assert.ok(html.includes("<script id=\"report\""));
   assert.ok(html.includes("function escapeHtml(value)"));
   assert.ok(html.includes("function escapeAttr(value)"));
+  assert.ok(html.includes("function pluralize(count, singular, plural)"));
   assert.ok(html.includes("function stableHash(value)"));
   assert.ok(html.includes("async function copyText(text)"));
   assert.ok(html.includes("Frameworks"));

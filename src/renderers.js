@@ -1164,6 +1164,11 @@ function renderHtml(report) {
       return escapeHtml(value).replace(/"/g, "&quot;");
     }
 
+    function pluralize(count, singular, plural) {
+      const p = plural || (singular + "s");
+      return Number(count || 0).toLocaleString() + " " + (count === 1 ? singular : p);
+    }
+
     function stableHashLocal(value) {
       let hash = 2166136261;
       const text = String(value ?? "");
