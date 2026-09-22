@@ -545,31 +545,115 @@ function renderHtml(report) {
     }
 
     .tree {
-      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
     }
 
-    .tree ul {
-      margin-left: 14px;
-      padding-left: 8px;
-      border-left: 1px solid var(--surface-border);
-      list-style: none;
-    }
-
-    .tree li {
-      margin: 4px 0;
+    .tree-folder > summary {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 4px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
+      user-select: none;
+      list-style: none;
+    }
+
+    .tree-folder > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .tree-folder > summary:hover {
+      background: var(--surface-elevated);
+    }
+
+    .tree-twisty {
+      width: 0;
+      height: 0;
+      border-left: 4px solid var(--text-subtle);
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+      flex-shrink: 0;
+      transition: transform 0.12s ease;
+    }
+
+    .tree-folder[open] > summary .tree-twisty {
+      transform: rotate(90deg);
+    }
+
+    .tree-icon {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      flex-shrink: 0;
+      background: var(--text-subtle);
+    }
+
+    .tree-icon.folder {
+      background: var(--accent);
+    }
+
+    .tree-name {
+      font-size: 11px;
+      color: var(--text-muted);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      color: var(--text-muted);
     }
 
-    .tree li:hover {
+    .tree-folder > summary .tree-name {
       color: var(--text);
+      font-weight: 500;
     }
 
-    .tree .file {
+    .tree-count {
+      margin-left: auto;
+      font-size: 10px;
+      color: var(--text-subtle);
+      font-family: var(--font-mono);
+      flex-shrink: 0;
+    }
+
+    .tree-file {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 4px 3px 18px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+    }
+
+    .tree-file:hover {
+      background: var(--surface-elevated);
+    }
+
+    .tree-file .tree-name {
       color: var(--accent-text);
+    }
+
+    .tree-children {
+      margin-left: 8px;
+      padding-left: 8px;
+      border-left: 1px solid var(--surface-border);
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .tree-more {
+      padding: 2px 4px 2px 18px;
+      font-size: 10px;
+      font-style: italic;
+      color: var(--text-subtle);
+    }
+
+    .tree-note {
+      margin-top: 8px;
+      font-size: 10px;
+      line-height: 1.4;
+      color: var(--warning);
     }
 
     /* Stage Area & Canvas */
@@ -660,6 +744,12 @@ function renderHtml(report) {
 
     .canvas-controls .toggle-label input {
       accent-color: var(--accent);
+    }
+
+    .canvas-controls input[type="range"] {
+      width: 100px;
+      accent-color: var(--accent);
+      cursor: pointer;
     }
 
     canvas {
@@ -871,8 +961,6 @@ function renderHtml(report) {
         <!-- Sample selector -->
         <select id="projectSelector" style="width: auto; padding: 5px 10px; font-size: 12px;">
           <option value="local">Live Codebase</option>
-          <option value="nextjs-fullstack">Next.js 15 & Prisma (Sample)</option>
-          <option value="fastapi-backend">FastAPI & Celery (Sample)</option>
         </select>
 
         <button id="rescanBtn" title="Rescan repository from disk">
@@ -979,9 +1067,11 @@ function renderHtml(report) {
         <div class="section">
           <div class="section-header">
             <span class="section-title">Directory Structure</span>
+            <button class="ghost sm" id="expandAllTree" title="Expand or collapse all folders">Expand</button>
           </div>
           <div class="tree-wrapper">
-            <ul class="tree">${renderTree(report.directoryTree)}</ul>
+            <div class="tree" id="directoryTree"></div>
+            <div class="tree-note" id="treeNote" style="display:none"></div>
           </div>
         </div>
       </aside>
@@ -995,6 +1085,7 @@ function renderHtml(report) {
             <div class="canvas-controls">
               <button class="tool-btn" id="zoomIn" title="Zoom in">+</button>
               <button class="tool-btn" id="zoomOut" title="Zoom out">-</button>
+              <input type="range" id="zoomSlider" min="0.05" max="4" step="0.05" value="1" title="Zoom level" aria-label="Zoom level">
               <button class="tool-btn" id="fit" title="Fit to viewport">Fit</button>
               <button class="tool-btn" id="reset" title="Reset layout">Reset</button>
               <span style="width:1px;height:16px;background:var(--surface-border)"></span>
@@ -1045,12 +1136,19 @@ function renderHtml(report) {
               <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;margin-bottom:6px">Architecture Diagnostics</h2>
               <p style="color:var(--text-muted);font-size:13px">Structural cohesion, dependency centralization, and module coupling analysis.</p>
             </div>
-            <div class="stats-grid" id="insightsMetricsGrid" style="grid-template-columns:repeat(4,1fr)"></div>
+            <div class="stats-grid" id="insightsMetricsGrid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"></div>
             <div class="section">
               <div class="section-header">
                 <span class="section-title">Critical Architectural Hubs (High Centrality)</span>
               </div>
               <div id="hubsContainer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px"></div>
+            </div>
+            <div class="section">
+              <div class="section-header">
+                <span class="section-title">Circular Dependencies</span>
+                <span class="badge-counter" id="cyclesCount">0</span>
+              </div>
+              <div id="cyclesContainer" style="display:flex;flex-direction:column;gap:8px"></div>
             </div>
             <div class="section">
               <div class="section-header">
@@ -1110,6 +1208,7 @@ function renderHtml(report) {
     const projectSelector = document.getElementById("projectSelector");
     const exportSelector = document.getElementById("exportSelector");
     const toast = document.getElementById("toast");
+    const zoomSlider = document.getElementById("zoomSlider");
 
     let nodes = report.graph.nodes || [];
     let edges = report.graph.edges || [];
@@ -1181,6 +1280,11 @@ function renderHtml(report) {
 
     function stableHash(value) {
       return stableHashLocal(value);
+    }
+
+    function pluralize(count, singular, plural) {
+      const text = plural || \`\${singular}s\`;
+      return \`\${Number(count).toLocaleString()} \${count === 1 ? singular : text}\`;
     }
 
     async function copyText(text) {
@@ -1381,6 +1485,7 @@ function renderHtml(report) {
 
       ctx.restore();
       statusEl.textContent = \`\${visible.length.toLocaleString()} nodes · \${edgeList.length.toLocaleString()} edges · \${Math.round(state.scale * 100)}% zoom\`;
+      zoomSlider.value = state.scale;
     }
 
     function drawGrid(width, height, isDark) {
@@ -1804,6 +1909,10 @@ function renderHtml(report) {
       state.scale = Math.max(0.05, state.scale * 0.8);
       draw();
     });
+    zoomSlider.addEventListener("input", () => {
+      state.scale = Math.max(0.05, Math.min(4, parseFloat(zoomSlider.value) || 1));
+      draw();
+    });
     document.getElementById("reset").addEventListener("click", () => {
       searchInput.value = "";
       state.query = "";
@@ -1881,6 +1990,8 @@ function renderHtml(report) {
       const grid = document.getElementById("insightsMetricsGrid");
       const hubs = document.getElementById("hubsContainer");
       const externals = document.getElementById("externalDepsContainer");
+      const cyclesContainer = document.getElementById("cyclesContainer");
+      const cyclesCounter = document.getElementById("cyclesCount");
 
       const inDegree = new Map();
       const outDegree = new Map();
@@ -1895,11 +2006,14 @@ function renderHtml(report) {
         .slice(0, 6);
 
       const externalNodes = nodes.filter((n) => n.external);
+      const cycles = (report.insights && report.insights.cycles) || [];
+      if (cyclesCounter) cyclesCounter.textContent = cycles.length;
 
       grid.innerHTML = \`
         <div class="metric-card"><strong>\${localNodes.length}</strong><span>Local Modules</span></div>
         <div class="metric-card"><strong>\${edges.length}</strong><span>Dependency Edges</span></div>
         <div class="metric-card"><strong>\${externalNodes.length}</strong><span>External Libraries</span></div>
+        <div class="metric-card"><strong>\${cycles.length}</strong><span>Circular Modules</span></div>
         <div class="metric-card"><strong>\${report.stack.frameworks.length || "0"}</strong><span>Frameworks</span></div>
       \`;
 
@@ -1924,6 +2038,32 @@ function renderHtml(report) {
           }
         });
       });
+
+      if (cyclesContainer) {
+        cyclesContainer.innerHTML = cycles.length
+          ? cycles.map((cycle) => \`
+              <div class="metric-card" style="padding:8px 10px">
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                  \${cycle.nodes.map((id, index) => \`
+                    <span class="tag" style="cursor:pointer" data-cycle-node="\${escapeAttr(id)}">\${escapeHtml(id)}</span>
+                    \${index < cycle.nodes.length - 1 ? '<span style="color:var(--text-subtle)">\\u2192</span>' : ""}
+                  \`).join("")}
+                </div>
+              </div>
+            \`).join("")
+          : '<p style="color:var(--text-muted);font-size:13px">No circular dependencies detected \\u2014 healthy module topology.</p>';
+
+        cyclesContainer.querySelectorAll("[data-cycle-node]").forEach((el) => {
+          el.addEventListener("click", () => {
+            const id = el.getAttribute("data-cycle-node");
+            const target = nodes.find((n) => n.id === id);
+            if (target) {
+              document.querySelector('[data-view="graph"]').click();
+              selectNode(target);
+            }
+          });
+        });
+      }
 
       externals.innerHTML = externalNodes.slice(0, 15).map((ext) => \`
         <div class="metric-card">
@@ -1963,6 +2103,81 @@ function renderHtml(report) {
       \`).join("");
     }
 
+    // Interactive directory tree
+    let treeExpanded = false;
+
+    function countTreeFiles(node) {
+      if (!node) return 0;
+      if (node.type === "file") return 1;
+      return (node.children || []).reduce((total, child) => total + countTreeFiles(child), 0);
+    }
+
+    function treeNodeHtml(node, depth) {
+      if (node.type === "file") {
+        const dot = node.language && languageColors[node.language]
+          ? \`style="background:\${escapeAttr(languageColors[node.language])}"\`
+          : "";
+        return \`<div class="tree-file" data-tree-file="\${escapeAttr(node.path || node.name)}" title="\${escapeAttr(node.path || node.name)}">
+          <span class="tree-icon" \${dot}></span>
+          <span class="tree-name">\${escapeHtml(node.name)}</span>
+        </div>\`;
+      }
+      const children = node.children || [];
+      const fileCount = countTreeFiles(node);
+      return \`<details class="tree-folder"\${depth < 2 ? " open" : ""}>
+        <summary class="tree-folder-head" title="\${escapeAttr(node.name)}">
+          <span class="tree-twisty"></span>
+          <span class="tree-icon folder"></span>
+          <span class="tree-name">\${escapeHtml(node.name)}</span>
+          <span class="tree-count">\${fileCount}</span>
+        </summary>
+        <div class="tree-children">
+          \${children.map((child) => treeNodeHtml(child, depth + 1)).join("")}
+        </div>
+      </details>\`;
+    }
+
+    function renderDirectoryTree() {
+      const container = document.getElementById("directoryTree");
+      if (!container) return;
+      const root = report.directoryTree;
+      if (!root || !(root.children || []).length) {
+        container.innerHTML = '<span class="tree-name" style="padding:4px">No files scanned.</span>';
+        return;
+      }
+      container.innerHTML = root.children
+        .map((child) => treeNodeHtml(child, 0))
+        .join("");
+
+      container.querySelectorAll("[data-tree-file]").forEach((el) => {
+        el.addEventListener("click", () => {
+          const target = nodes.find((n) => n.path === el.getAttribute("data-tree-file"));
+          if (target) {
+            document.querySelector('[data-view="graph"]').click();
+            selectNode(target);
+          }
+        });
+      });
+
+      const note = document.getElementById("treeNote");
+      if (note) {
+        note.style.display = report.summary.maxFilesReached ? "block" : "none";
+        note.textContent = "Scan hit the max-files limit \\u2014 this tree is a partial view. Raise --max-files to include the rest.";
+      }
+      syncExpandButton();
+    }
+
+    function syncExpandButton() {
+      const btn = document.getElementById("expandAllTree");
+      if (btn) btn.textContent = treeExpanded ? "Collapse" : "Expand";
+    }
+
+    document.getElementById("expandAllTree")?.addEventListener("click", () => {
+      treeExpanded = !treeExpanded;
+      document.querySelectorAll("#directoryTree details").forEach((d) => { d.open = treeExpanded; });
+      syncExpandButton();
+    });
+
     // Sample switcher
     projectSelector.addEventListener("change", async (e) => {
       const val = e.target.value;
@@ -1997,6 +2212,7 @@ function renderHtml(report) {
           layout = computeLayout(nodes, edges);
           state.languages = new Set(report.stack.languages.map((i) => i.name));
           refreshLanguageFiltersUI();
+          renderDirectoryTree();
           fit();
           renderInspector(null);
           showToast("Scan complete!");
@@ -2022,6 +2238,7 @@ function renderHtml(report) {
     window.addEventListener("resize", resize);
     resize();
     renderInspector(null);
+    renderDirectoryTree();
   </script>
 </body>
 </html>`;
@@ -2033,8 +2250,9 @@ function renderFrameworks(report) {
 }
 
 function renderScanScope(report) {
+  const unlimited = !report.summary.maxFiles || !Number.isFinite(report.summary.maxFiles);
   return [
-    `<span class="chip"><b>${escapeHtml(report.summary.maxFiles)}</b> max files</span>`,
+    `<span class="chip"><b>${unlimited ? "no limit" : escapeHtml(report.summary.maxFiles)}</b> max files</span>`,
     `<span class="chip">${report.summary.maxFilesReached ? "truncated" : "complete scan"}</span>`,
     `<span class="chip"><b>${escapeHtml(report.summary.externalDependencies)}</b> externals</span>`,
     `<span class="chip"><b>${escapeHtml(report.summary.totalBlankLines.toLocaleString())}</b> blanks</span>`,
@@ -2074,14 +2292,6 @@ function renderExternalDependencies(report) {
       <span style="font-size:10px">${Number(dep.count || dep.lines || 0).toLocaleString()} imports</span>
     </div>
   `).join("");
-}
-
-function renderTree(node) {
-  if (!node) return "";
-  const className = node.type === "file" ? "file" : "";
-  const label = node.path ? `<code>${escapeHtml(node.path)}</code>` : escapeHtml(node.name);
-  const children = (node.children || []).slice(0, 18).map(renderTree).join("");
-  return `<li class="${className}">${label}${children ? `<ul>${children}</ul>` : ""}</li>`;
 }
 
 module.exports = {

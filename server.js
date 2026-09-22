@@ -6,7 +6,9 @@ const { renderHtml } = require("./src/renderers");
 const { SAMPLE_PROJECTS } = require("./src/samples");
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
-const HOST = "0.0.0.0";
+// Bind to loopback by default: this is a local developer tool and the report
+// exposes repository file paths. Set HOST=0.0.0.0 to share on a network.
+const HOST = process.env.HOST || "127.0.0.1";
 
 let cachedReport = null;
 let lastScanTime = 0;

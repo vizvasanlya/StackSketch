@@ -71,7 +71,7 @@ function parseArgs(args) {
     output: null,
     format: null,
     title: null,
-    maxFiles: 500,
+    maxFiles: null,
     ignore: [],
     include: [],
     open: false
@@ -185,7 +185,7 @@ Options:
   --md, --markdown        Write stacksketch.md
   --open                  Open the HTML report after generation
   --title <title>         Report title
-  --max-files <number>    Max source files to scan. Default: 500
+  --max-files <number>    Max source files to scan. Default: no limit
   --ignore <pattern>      Extra ignore pattern. Repeatable
   --include <pattern>     Extra include pattern. Repeatable
   -h, --help              Show help

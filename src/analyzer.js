@@ -1,5 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { computeCycles } = require("./graph");
 const {
   DEFAULT_IGNORE_PATTERNS,
   detectLanguage,
@@ -24,9 +25,6 @@ const {
 const JS_EXTENSIONS = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"];
 const CSS_EXTENSIONS = [".css", ".scss", ".sass", ".less"];
 const DART_EXTENSIONS = [".dart"];
-const IMPORT_LIMIT_PER_FILE = 80;
-const EDGE_LIMIT = 900;
-
 async function analyzeProject(rootPath = ".", options = {}) {
   const root = path.resolve(process.cwd(), rootPath || ".");
   const stat = await fs.stat(root).catch((error) => {
@@ -37,7 +35,7 @@ async function analyzeProject(rootPath = ".", options = {}) {
     throw new Error(`Project root "${root}" is not a directory.`);
   }
 
-  const maxFiles = Math.max(1, parseInteger(options.maxFiles, 500));
+  const maxFiles = options.maxFiles == null ? Infinity : Math.max(1, parseInteger(options.maxFiles, 500));
   const ignorePatterns = uniquePreserveOrder([...DEFAULT_IGNORE_PATTERNS, ...(options.ignore || [])]);
   const includePatterns = uniqueSorted(options.include || []);
   const ignore = createMatcher(ignorePatterns);
@@ -63,12 +61,15 @@ async function analyzeProject(rootPath = ".", options = {}) {
 
   const moduleIndex = buildModuleIndex(fileReports);
   const config = await readConfig(root, fileReports.map((report) => report.path));
+  const aliasResolver = buildAliasResolver(config);
+  const fileList = fileReports.map((report) => report.path);
+  const csharpNamespaces = buildCSharpNamespaces(fileReports);
   const externalDependencies = new Map();
   const edges = [];
 
   for (const report of fileReports) {
     for (const specifier of report.imports) {
-      const resolved = resolveImport(root, report.path, specifier, report.language, moduleIndex, goModulePrefix);
+      const resolved = resolveImport(root, report.path, specifier, report.language, moduleIndex, goModulePrefix, { fileList, aliasResolver, csharpNamespaces });
       if (resolved) {
         edges.push({
           source: report.path,
@@ -94,10 +95,9 @@ async function analyzeProject(rootPath = ".", options = {}) {
     }
   }
 
-  const localEdges = edges.filter((edge) => edge.kind === "local").slice(0, EDGE_LIMIT);
+  const localEdges = edges.filter((edge) => edge.kind === "local");
   const externalNodes = [...externalDependencies.values()]
     .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
-    .slice(0, 120)
     .map((dependency) => ({
       id: dependency.id,
       path: dependency.id,
@@ -105,26 +105,26 @@ async function analyzeProject(rootPath = ".", options = {}) {
       language: "External",
       lines: dependency.count,
       loc: dependency.count,
-      imports: dependency.imports.slice(0, 20),
+      imports: dependency.imports,
       exports: [],
       score: dependency.count * 25,
       external: true
     }));
 
   const externalEdges = [...externalDependencies.entries()]
-    .flatMap(([id, dependency]) => dependency.imports.slice(0, 8).map((source) => ({
+    .flatMap(([id, dependency]) => dependency.imports.map((source) => ({
       source,
       target: id,
       kind: "external",
       specifier: id
-    })))
-    .slice(0, EDGE_LIMIT);
+    })));
 
   const nodes = [...fileReports, ...externalNodes].sort((a, b) => a.path.localeCompare(b.path));
+  const cycles = computeCycles(nodes, localEdges, 8);
   const languages = summarizeLanguages(fileReports);
   const frameworks = detectFrameworks(config, fileReports);
   const topFiles = topBy(fileReports, (file) => file.score, 12);
-  const directoryTree = buildDirectoryTree(fileReports, 160);
+  const directoryTree = buildDirectoryTree(fileReports);
   const totalLines = fileReports.reduce((sum, file) => sum + file.lines, 0);
   const totalBytes = fileReports.reduce((sum, file) => sum + file.bytes, 0);
   const sourceFileCount = fileReports.filter((file) => !file.external).length;
@@ -163,6 +163,7 @@ async function analyzeProject(rootPath = ".", options = {}) {
     },
     topFiles,
     directoryTree,
+    insights: { cycles },
     humanSummary: {
       size: bytesToSize(totalBytes),
       lines: fileReports.reduce((sum, file) => sum + file.codeLines, 0).toLocaleString(),
@@ -214,7 +215,7 @@ async function readPreview(filePath) {
       return { content: "", binary: true };
     }
     return {
-      content: buffer.toString("utf8").slice(0, 8192),
+      content: buffer.toString("utf8"),
       binary: false
     };
   } catch {
@@ -248,8 +249,9 @@ async function readFileReport(root, relative) {
   const content = buffer.toString("utf8");
   const lineMetrics = countLineMetrics(content, detectLanguage(relative, content));
   const language = lineMetrics.language;
-  const imports = extractImports(content, language).slice(0, IMPORT_LIMIT_PER_FILE);
+  const imports = extractImports(content, language);
   const exports = extractSymbols(content, language);
+  const declaredNamespace = extractDeclaredNamespace(content, language);
   const loc = Math.max(0, lineMetrics.codeLines);
   const score = loc * 2 + imports.length * 12 + exports.length * 18 + (isConfigFile(relative) ? 40 : 0);
 
@@ -266,9 +268,17 @@ async function readFileReport(root, relative) {
     bytes: stat.size,
     imports,
     exports,
+    declaredNamespace,
     score,
     external: false
   };
+}
+
+function extractDeclaredNamespace(content, language) {
+  if (language !== "C#") return undefined;
+  // File-scoped: `namespace Foo.Bar;` and traditional: `namespace Foo.Bar {`.
+  const match = content.match(/^\s*namespace\s+([A-Za-z_][\w.]*)\s*[;{]/m);
+  return match ? match[1] : undefined;
 }
 
 function countLineMetrics(content, language) {
@@ -359,31 +369,162 @@ function buildModuleIndex(fileReports) {
       const directory = withoutExtension.includes("/") ? withoutExtension.slice(0, withoutExtension.lastIndexOf("/")) : "";
       if (directory && !index.has(directory)) index.set(directory, normalized);
     }
+    if (file.language === "Python") {
+      // Support `src/`-layout projects (including nested monorepo paths such as
+      // `packages/api/src/myapp/core.py`): `import myapp.core` should resolve
+      // without clobbering root-level packages.
+      const srcIndex = normalized.startsWith("src/") ? 0 : normalized.lastIndexOf("/src/");
+      if (srcIndex !== -1) {
+        const stripped = normalized.slice(srcIndex === 0 ? 4 : srcIndex + 5);
+        const strippedWithoutExtension = stripExtension(stripped);
+        if (!index.has(stripped)) index.set(stripped, normalized);
+        if (!index.has(strippedWithoutExtension)) index.set(strippedWithoutExtension, normalized);
+        if (!index.has(`${strippedWithoutExtension}/__init__.py`)) index.set(`${strippedWithoutExtension}/__init__.py`, normalized);
+      }
+    }
     for (const ext of DART_EXTENSIONS) index.set(`${withoutExtension}${ext}`, normalized);
   }
   return index;
 }
 
-function resolveImport(root, importer, specifier, language, moduleIndex, goModulePrefix) {
+function resolveImport(root, importer, specifier, language, moduleIndex, goModulePrefix, context = {}) {
   const clean = stripQueryHash(specifier);
   if (!clean) return null;
+  const fileList = context.fileList || [];
+  const aliasResolver = context.aliasResolver || { baseUrl: "", entries: [] };
 
   if (language === "JavaScript" || language === "TypeScript" || language === "Vue" || language === "Svelte") {
-    if (!clean.startsWith(".")) return null;
-    const base = path.resolve(root, path.dirname(importer), clean);
-    const candidates = [];
-    const extension = path.extname(base);
-    if (extension) {
-      candidates.push(base);
-    } else {
-      for (const ext of [...JS_EXTENSIONS, ...CSS_EXTENSIONS]) candidates.push(`${base}${ext}`);
-      for (const ext of [...JS_EXTENSIONS, ...CSS_EXTENSIONS]) candidates.push(path.join(base, `index${ext}`));
+    if (clean.startsWith(".")) {
+      return resolveCandidates(root, moduleIndex, jsCandidates(path.resolve(root, path.dirname(importer), clean)));
     }
-    for (const candidate of candidates) {
-      const relative = normalizeFilePath(path.relative(root, candidate));
-      if (moduleIndex.has(relative)) return moduleIndex.get(relative);
-      const without = stripExtension(relative);
-      if (moduleIndex.has(without)) return moduleIndex.get(without);
+    // Non-relative specifier: try tsconfig/jsconfig `paths`, Node subpath
+    // imports (`#*`), or `baseUrl` before classifying as an external package.
+    const aliased = resolveAliasedSpecifier(clean, aliasResolver);
+    if (aliased) {
+      const resolved = resolveCandidates(root, moduleIndex, jsCandidates(path.resolve(root, aliased)));
+      if (resolved) return resolved;
+    }
+    return null;
+  }
+
+  if (language === "CSS" || language === "SCSS" || language === "Sass" || language === "Less") {
+    const dir = path.dirname(importer);
+    const bases = [path.resolve(root, dir, clean)];
+    if (!clean.startsWith(".")) bases.push(path.resolve(root, clean)); // package/root-relative stylesheets
+    const candidates = [];
+    for (const base of bases) {
+      if (path.extname(base)) candidates.push(base);
+      const baseName = path.posix.basename(normalizeFilePath(clean));
+      for (const ext of CSS_EXTENSIONS) {
+        candidates.push(`${base}${ext}`);
+        candidates.push(path.join(path.dirname(base), `_${baseName}${ext}`)); // Sass partials (_foo.scss)
+        candidates.push(path.join(base, `index${ext}`));
+        candidates.push(path.join(base, `_index${ext}`));
+      }
+    }
+    return resolveCandidates(root, moduleIndex, candidates);
+  }
+
+  if (language === "C" || language === "C++" || language === "C/C++ Header") {
+    const dirs = [path.dirname(importer)];
+    if (!clean.startsWith(".")) dirs.push("."); // include-path style: resolve from project root
+    const candidates = [];
+    for (const dir of dirs) {
+      const base = path.resolve(root, dir, clean);
+      candidates.push(base);
+      if (!path.extname(base)) {
+        for (const ext of [".h", ".hpp", ".hh", ".hxx", ".c", ".cc", ".cpp", ".cxx"]) candidates.push(`${base}${ext}`);
+      }
+    }
+    return resolveCandidates(root, moduleIndex, candidates) || matchSuffix(fileList, clean);
+  }
+
+  if (language === "Java" || language === "Kotlin" || language === "Scala") {
+    if (isStandardJvmNamespace(clean)) return null;
+    const target = clean.replaceAll(".", "/").replace(/\/\*$/, "");
+    if (!target || target.includes("*")) return null;
+    for (const ext of [".java", ".kt", ".scala"]) {
+      const candidate = `${target}${ext}`;
+      const resolved = resolveCandidates(root, moduleIndex, [path.resolve(root, candidate)]);
+      if (resolved) return resolved;
+      const suffixed = matchSuffix(fileList, candidate);
+      if (suffixed) return suffixed;
+    }
+    return null;
+  }
+
+  if (language === "Ruby") {
+    // require_relative is always file-relative; bare require may still hit a
+    // local file, so attempt local resolution before falling back to a gem.
+    const candidates = [
+      path.resolve(root, path.dirname(importer), clean),
+      `${path.resolve(root, path.dirname(importer), clean)}.rb`
+    ];
+    if (!clean.startsWith(".")) candidates.push(path.resolve(root, `${clean}.rb`));
+    return resolveCandidates(root, moduleIndex, candidates) || matchSuffix(fileList, `${clean}.rb`);
+  }
+
+  if (language === "PHP") {
+    if (clean.includes("\\")) {
+      // `use Foo\Bar;` maps to Foo/Bar.php somewhere in the tree.
+      return matchSuffix(fileList, `${clean.split("\\").filter(Boolean).join("/")}.php`);
+    }
+    const dir = path.dirname(importer);
+    const candidates = [
+      path.resolve(root, dir, clean),
+      path.resolve(root, dir, `${clean}.php`)
+    ];
+    if (!clean.startsWith(".")) candidates.push(path.resolve(root, `${clean}.php`));
+    return resolveCandidates(root, moduleIndex, candidates) || matchSuffix(fileList, clean);
+  }
+
+  if (language === "Lua") {
+    const target = clean.replaceAll(".", "/");
+    const candidates = [
+      path.resolve(root, `${target}.lua`),
+      path.resolve(root, target, "init.lua")
+    ];
+    return resolveCandidates(root, moduleIndex, candidates) || matchSuffix(fileList, `${target}.lua`);
+  }
+
+  if (language === "C#") {
+    // `using static Foo.Bar.Baz;` is type-qualified and maps to Foo/Bar/Baz.cs.
+    // `using Foo.Bar;` is namespace-qualified and maps to the file declaring
+    // that namespace (or the primary file inside a matching directory).
+    const target = clean.replace(/^static\s+/, "").trim();
+    if (!target || isStandardCSharpNamespace(target)) return null;
+    const pathForm = target.replaceAll(".", "/");
+    const exact = resolveCandidates(root, moduleIndex, [path.resolve(root, `${pathForm}.cs`)]);
+    if (exact) return exact;
+    const suffixed = matchSuffix(fileList, `${pathForm}.cs`);
+    if (suffixed) return suffixed;
+    const declared = context.csharpNamespaces ? context.csharpNamespaces.get(target) : null;
+    if (declared) return declared;
+    // `using App.Models.User;` where App.Models is declared by a file whose
+    // directory does not mirror the namespace root: strip the type segment.
+    let namespace = target;
+    while (namespace.includes(".")) {
+      namespace = namespace.slice(0, namespace.lastIndexOf("."));
+      const viaNamespace = context.csharpNamespaces ? context.csharpNamespaces.get(namespace) : null;
+      if (viaNamespace) return viaNamespace;
+    }
+    const directoryFile = fileList
+      .filter((file) => file.endsWith(".cs") && file.includes(`/${pathForm}/`))
+      .sort((a, b) => a.localeCompare(b))[0];
+    return directoryFile || null;
+  }
+
+  if (language === "Swift") {
+    // `import Foo` brings in the whole module Foo: map it to Foo.swift at any
+    // depth, else the primary file inside a Foo/ module directory.
+    const module = clean.split(".")[0];
+    if (!module || isStandardSwiftModule(module)) return null;
+    const moduleFile = matchSuffix(fileList, `${module}.swift`);
+    if (moduleFile) return moduleFile;
+    const directoryMatches = fileList.filter((file) => file.endsWith(".swift") && file.includes(`/${module}/`));
+    if (directoryMatches.length) {
+      return directoryMatches.find((file) => file.endsWith(`/${module}/${module}.swift`))
+        || directoryMatches.sort((a, b) => a.localeCompare(b))[0];
     }
     return null;
   }
@@ -457,6 +598,106 @@ function resolveImport(root, importer, specifier, language, moduleIndex, goModul
   return null;
 }
 
+function jsCandidates(base) {
+  const candidates = [];
+  const extension = path.extname(base);
+  if (extension) {
+    candidates.push(base);
+  } else {
+    for (const ext of [...JS_EXTENSIONS, ...CSS_EXTENSIONS]) candidates.push(`${base}${ext}`);
+    for (const ext of [...JS_EXTENSIONS, ...CSS_EXTENSIONS]) candidates.push(path.join(base, `index${ext}`));
+  }
+  return candidates;
+}
+
+function resolveCandidates(root, moduleIndex, candidates) {
+  for (const candidate of candidates) {
+    const relative = normalizeFilePath(path.relative(root, candidate));
+    if (moduleIndex.has(relative)) return moduleIndex.get(relative);
+    const without = stripExtension(relative);
+    if (moduleIndex.has(without)) return moduleIndex.get(without);
+  }
+  return null;
+}
+
+function matchSuffix(fileList, suffix) {
+  if (!Array.isArray(fileList) || !suffix) return null;
+  // Case-insensitive: PHP namespaces and PSR-4 paths do not need to match case.
+  const needle = normalizeFilePath(suffix).toLowerCase();
+  const matches = fileList.filter((file) => {
+    const lowered = file.toLowerCase();
+    return lowered === needle || lowered.endsWith(`/${needle}`);
+  });
+  return matches.sort((a, b) => a.length - b.length)[0] || null;
+}
+
+function buildCSharpNamespaces(fileReports) {
+  const byNamespace = new Map();
+  for (const report of fileReports) {
+    if (!report.declaredNamespace) continue;
+    const existing = byNamespace.get(report.declaredNamespace) || [];
+    existing.push(report);
+    byNamespace.set(report.declaredNamespace, existing);
+  }
+  // A namespace spans many files; resolve `using` statements to the most
+  // representative file (highest complexity score, then shortest path).
+  const index = new Map();
+  for (const [namespace, reports] of byNamespace) {
+    const primary = reports
+      .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))[0];
+    index.set(namespace, primary.path);
+  }
+  return index;
+}
+
+function buildAliasResolver(config) {
+  const tsconfig = config && (config.tsconfig || config.jsconfig);
+  const compilerOptions = (tsconfig && tsconfig.compilerOptions) || {};
+  const baseUrl = compilerOptions.baseUrl ? normalizeFilePath(compilerOptions.baseUrl) : "";
+  const entries = [];
+
+  const addPattern = (pattern, target, prefixBaseUrl) => {
+    if (typeof pattern !== "string" || typeof target !== "string") return;
+    const wildcard = pattern.includes("*");
+    const prefix = wildcard ? pattern.replace(/\/\*$/, "") : pattern;
+    let destination = wildcard ? target.replace(/\/\*$/, "") : target;
+    // tsconfig `paths` targets are relative to `baseUrl`; package.json
+    // subpath imports are relative to the package root.
+    if (prefixBaseUrl && baseUrl) destination = normalizeFilePath(path.posix.join(baseUrl, destination));
+    if (prefix && destination) entries.push({ prefix, destination, wildcard });
+  };
+
+  for (const [pattern, targets] of Object.entries(compilerOptions.paths || {})) {
+    const target = Array.isArray(targets) ? targets[0] : targets;
+    addPattern(pattern, target, true);
+  }
+
+  const imports = (config && config.packageJson && config.packageJson.imports) || {};
+  for (const [pattern, value] of Object.entries(imports)) {
+    const target = typeof value === "string" ? value : (value && (value.default || value.browser || value.require || value.types));
+    addPattern(pattern, target, false);
+  }
+
+  return { baseUrl, entries };
+}
+
+function resolveAliasedSpecifier(specifier, resolver) {
+  for (const entry of resolver.entries) {
+    if (entry.wildcard) {
+      if (specifier === entry.prefix) return entry.destination;
+      if (specifier.startsWith(`${entry.prefix}/`)) {
+        return normalizeFilePath(path.posix.join(entry.destination, specifier.slice(entry.prefix.length + 1)));
+      }
+    } else if (specifier === entry.prefix) {
+      return entry.destination;
+    }
+  }
+  if (resolver.baseUrl && specifier.includes("/")) {
+    return normalizeFilePath(path.posix.join(resolver.baseUrl, specifier));
+  }
+  return null;
+}
+
 function resolvePythonModule(moduleIndex, relative) {
   const normalized = normalizeFilePath(relative);
   return moduleIndex.get(`${normalized}.py`) || moduleIndex.get(`${normalized}/__init__.py`) || null;
@@ -505,6 +746,10 @@ function resolveExternalDependency(specifier, language, goModulePrefix) {
     if (isStandardCSharpNamespace(clean)) return null;
     return clean.split(".")[0];
   }
+  if (language === "Swift") {
+    if (isStandardSwiftModule(clean.split(".")[0])) return null;
+    return clean.split(".")[0];
+  }
   if (language === "Ruby") return clean.split("/")[0];
   if (language === "PHP") return clean.split("\\")[0];
   return clean.split(/[/:]/)[0];
@@ -515,7 +760,30 @@ function isStandardJvmNamespace(value) {
 }
 
 function isStandardCSharpNamespace(value) {
-  return /^(System\.|Microsoft\.|Mono\.|Windows\.|System\.Windows\.)/.test(value);
+  return /^(System\.|Microsoft\.|Mono\.|Windows\.|System\.Windows\.|Net\.|Globalization\.|Threading\.|Collections\.)/.test(value)
+    || ["System", "Microsoft", "Mono", "Windows", "Net"].includes(value);
+}
+
+const STANDARD_SWIFT_MODULES = new Set([
+  "ActivityKit", "AdSupport", "AppIntents", "AppKit", "AudioToolbox", "AVFoundation", "AVKit",
+  "Accelerate", "AssetsLibrary", "BackgroundTasks", "Charts", "CloudKit", "Combine", "Contacts",
+  "ContactsUI", "CoreAnimation", "CoreAudio", "CoreAuthenticator", "CoreBluetooth", "CoreData",
+  "CoreFoundation", "CoreGraphics", "CoreHaptics", "CoreImage", "CoreLocation", "CoreML",
+  "CoreMedia", "CoreMIDI", "CoreMotion", "CoreNFC", "CoreServices", "CoreSpotlight", "CoreText",
+  "CoreVideo", "Cryptokit", "Darwin", "Dispatch", "EventKit", "ExternalAccessory", "FileProvider",
+  "Foundation", "GameController", "GameKit", "GameplayKit", "HealthKit", "HomeKit", "IdentityLookup",
+  "Intents", "LinkPresentation", "LocalAuthentication", "MapKit", "MediaToolbox", "MessageUI",
+  "Messages", "Metal", "MetalKit", "MetricKit", "MultipeerConnectivity", "Network",
+  "NotificationCenter", "OSLog", "Observation", "OpenGLES", "PDFKit", "PassKit", "Photos",
+  "PhotosUI", "PushKit", "QuickLook", "QuickLookThumbnailing", "SafariServices", "SceneKit",
+  "ScreencaptureKit", "Security", "SensorKit", "ServiceManagement", "SharedWithYou", "Social",
+  "Speech", "StoreKit", "Swift", "SwiftData", "SwiftUI", "TipKit", "Twitter", "UIKit",
+  "UniformTypeIdentifiers", "UserNotifications", "VideoToolbox", "Vision", "VisionKit",
+  "WebKit", "WidgetKit", "XCTest", "XPC", "iAd", "os"
+]);
+
+function isStandardSwiftModule(value) {
+  return STANDARD_SWIFT_MODULES.has(value);
 }
 
 function extractImports(content, language) {
@@ -582,15 +850,30 @@ function extractImports(content, language) {
   }
 
   if (language === "C#") {
-    const regex = /^\s*using\s+([^;]+);/gm;
+    // Skips `using` statements (IDisposable) and `using var x = ...;` declarations.
+    const regex = /^\s*using\s+(?!var\s)(?!.*\b=\s)(static\s+)?([^;()]+);/gm;
     let match;
-    while ((match = regex.exec(content)) !== null) add(match[1]);
+    while ((match = regex.exec(content)) !== null) {
+      const specifier = match[2].trim();
+      if (specifier && !specifier.startsWith("(")) add(specifier);
+    }
+  }
+
+  if (language === "Swift") {
+    // `import Foo`, `@testable import Foo`, `import struct Foo.Bar`.
+    const testableRegex = /@testable\s+import\s+([A-Za-z_][\w.]*)/g;
+    const importRegex = /\bimport\s+(?:(?:func|struct|class|enum|protocol|typealias|var|let)\s+)?([A-Za-z_][\w.]*)/g;
+    let match;
+    while ((match = testableRegex.exec(content)) !== null) add(match[1]);
+    while ((match = importRegex.exec(content)) !== null) add(match[1]);
   }
 
   if (language === "PHP") {
-    const regex = /^\s*use\s+([^;]+);/gm;
+    const useRegex = /^\s*use\s+([^;]+);/gm;
+    const requireRegex = /\b(?:require|require_once|include|include_once)\s*\(?\s*['"]([^'"]+)['"]\s*\)?/g;
     let match;
-    while ((match = regex.exec(content)) !== null) add(match[1]);
+    while ((match = useRegex.exec(content)) !== null) add(match[1]);
+    while ((match = requireRegex.exec(content)) !== null) add(match[1]);
   }
 
   if (language === "Ruby") {
@@ -601,7 +884,31 @@ function extractImports(content, language) {
     while ((match = relativeRegex.exec(content)) !== null) add(match[1]);
   }
 
-  return [...specs].slice(0, IMPORT_LIMIT_PER_FILE);
+  if (language === "CSS" || language === "SCSS" || language === "Sass" || language === "Less") {
+    const importRegex = /@(?:import|use|forward)\s+(?:url\(\s*)?['"]([^'"]+)['"]/g;
+    let match;
+    while ((match = importRegex.exec(content)) !== null) {
+      const specifier = match[1];
+      if (specifier.startsWith("http") || specifier.includes(":")) continue; // remote URLs and built-in Sass modules
+      add(specifier);
+    }
+  }
+
+  if (language === "C" || language === "C++" || language === "C/C++ Header") {
+    const localRegex = /#\s*include\s*"([^"]+)"/g;
+    const systemRegex = /#\s*include\s*<([^>]+)>/g;
+    let match;
+    while ((match = localRegex.exec(content)) !== null) add(match[1]);
+    while ((match = systemRegex.exec(content)) !== null) add(match[1]);
+  }
+
+  if (language === "Lua") {
+    const regex = /\b(?:require|dofile|loadfile)\s*\(?['"]([^'"]+)['"]\)?/g;
+    let match;
+    while ((match = regex.exec(content)) !== null) add(match[1]);
+  }
+
+  return [...specs];
 }
 
 function extractSymbols(content, language) {
@@ -678,7 +985,7 @@ function extractSymbols(content, language) {
     while ((match = regex.exec(content)) !== null) add(match[1]);
   }
 
-  return [...symbols].sort().slice(0, 80);
+  return [...symbols].sort();
 }
 
 async function readGitignorePatterns(root) {
@@ -812,7 +1119,45 @@ async function readConfig(root, relativeFiles) {
     config.gradle = "";
   }
 
+  config.tsconfig = await readTsConfig(path.join(root, "tsconfig.json"));
+  if (!config.tsconfig) {
+    config.tsconfig = await readTsConfig(path.join(root, "tsconfig.app.json"));
+  }
+  config.jsconfig = config.tsconfig ? null : await readTsConfig(path.join(root, "jsconfig.json"));
+
   return config;
+}
+
+async function readTsConfig(filePath, seen = new Set()) {
+  const absolute = path.resolve(filePath);
+  if (seen.has(absolute)) return null;
+  seen.add(absolute);
+  let parsed;
+  try {
+    parsed = JSON.parse(stripJsonComments(await fs.readFile(absolute, "utf8")));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+
+  if (parsed.extends) {
+    const base = await readTsConfig(path.resolve(path.dirname(absolute), parsed.extends), seen);
+    if (base) {
+      return {
+        ...base,
+        ...parsed,
+        compilerOptions: { ...base.compilerOptions, ...(parsed.compilerOptions || {}) }
+      };
+    }
+  }
+  return parsed;
+}
+
+function stripJsonComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1")
+    .replace(/,\s*([}\]])/g, "$1");
 }
 
 function summarizeLanguages(fileReports) {
@@ -852,29 +1197,33 @@ function detectFrameworks(config, fileReports) {
   }
 
   const checks = [
-    (name) => packageNames.has("react") && "React",
-    (name) => packageNames.has("next") && "Next.js",
-    (name) => packageNames.has("vite") && "Vite",
-    (name) => packageNames.has("nuxt") && "Nuxt",
-    (name) => packageNames.has("svelte") && "Svelte",
-    (name) => packageNames.has("vue") && "Vue",
-    (name) => packageNames.has("express") && "Express",
-    (name) => packageNames.has("@nestjs/core") && "NestJS",
-    (name) => packageNames.has("fastify") && "Fastify",
-    (name) => (config.pyproject.includes("django") || requirements.has("django")) && "Django",
-    (name) => (config.pyproject.includes("flask") || requirements.has("flask")) && "Flask",
-    (name) => (config.pyproject.includes("fastapi") || requirements.has("fastapi")) && "FastAPI",
-    (name) => config.pubspec.includes("flutter:") && "Flutter",
-    (name) => config.pubspec.includes("sdk: flutter") && "Flutter",
-    (name) => relativeFiles.some((file) => file === "pubspec.yaml") && config.pubspec.includes("flutter") && "Flutter",
-    (name) => relativeFiles.some((file) => /next\.config\.(js|mjs|ts)$/.test(file)) && "Next.js",
-    (name) => relativeFiles.some((file) => /vite\.config\.(js|ts|mjs|mts)$/.test(file)) && "Vite",
-    (name) => relativeFiles.some((file) => /tailwind\.config\.(js|ts)$/.test(file)) && "Tailwind CSS",
-    (name) => config.cargoToml.includes("actix-web") && "Actix Web",
-    (name) => config.cargoToml.includes("rocket") && "Rocket",
-    (name) => config.goMod.includes("gin-gonic") && "Gin",
-    (name) => config.goMod.includes("labstack/echo") && "Echo",
-    (name) => config.gradle.includes("org.springframework.boot") && "Spring Boot"
+    () => packageNames.has("react") && "React",
+    () => packageNames.has("next") && "Next.js",
+    () => packageNames.has("vite") && "Vite",
+    () => packageNames.has("nuxt") && "Nuxt",
+    () => packageNames.has("svelte") && "Svelte",
+    () => packageNames.has("vue") && "Vue",
+    () => packageNames.has("express") && "Express",
+    () => packageNames.has("@nestjs/core") && "NestJS",
+    () => packageNames.has("fastify") && "Fastify",
+    () => (config.pyproject.includes("django") || requirements.has("django")) && "Django",
+    () => (config.pyproject.includes("flask") || requirements.has("flask")) && "Flask",
+    () => (config.pyproject.includes("fastapi") || requirements.has("fastapi")) && "FastAPI",
+    () => (config.pyproject.includes("sqlalchemy") || requirements.has("sqlalchemy")) && "SQLAlchemy",
+    () => (config.pyproject.includes("celery") || requirements.has("celery")) && "Celery",
+    () => config.pubspec.includes("flutter:") && "Flutter",
+    () => config.pubspec.includes("sdk: flutter") && "Flutter",
+    () => relativeFiles.some((file) => file === "pubspec.yaml") && config.pubspec.includes("flutter") && "Flutter",
+    () => relativeFiles.some((file) => /next\.config\.(js|mjs|ts)$/.test(file)) && "Next.js",
+    () => relativeFiles.some((file) => /vite\.config\.(js|ts|mjs|mts)$/.test(file)) && "Vite",
+    () => relativeFiles.some((file) => /tailwind\.config\.(js|ts)$/.test(file)) && "Tailwind CSS",
+    () => relativeFiles.some((file) => file.endsWith("schema.prisma")) && "Prisma",
+    () => (packageNames.has("prisma") || packageNames.has("@prisma/client")) && "Prisma",
+    () => config.cargoToml.includes("actix-web") && "Actix Web",
+    () => config.cargoToml.includes("rocket") && "Rocket",
+    () => config.goMod.includes("gin-gonic") && "Gin",
+    () => config.goMod.includes("labstack/echo") && "Echo",
+    () => config.gradle.includes("org.springframework.boot") && "Spring Boot"
   ];
 
   for (const check of checks) {
@@ -885,7 +1234,7 @@ function detectFrameworks(config, fileReports) {
   return [...frameworks].sort();
 }
 
-function buildDirectoryTree(fileReports, limit) {
+function buildDirectoryTree(fileReports) {
   const tree = { name: ".", type: "directory", children: new Map() };
 
   const getNode = (node, name, type) => {
@@ -912,7 +1261,6 @@ function buildDirectoryTree(fileReports, limit) {
   const serialize = (node) => {
     const children = [...node.children.values()]
       .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1))
-      .slice(0, 24)
       .map(serialize);
     return {
       name: node.name,
@@ -924,19 +1272,7 @@ function buildDirectoryTree(fileReports, limit) {
     };
   };
 
-  const serialized = serialize(tree);
-  return trimTree(serialized, limit);
-}
-
-function trimTree(node, remaining) {
-  if (remaining <= 0) return null;
-  const children = (node.children || [])
-    .map((child) => trimTree(child, remaining - 1))
-    .filter(Boolean);
-  return {
-    ...node,
-    children
-  };
+  return serialize(tree);
 }
 
 function formatMarkdown(report) {
@@ -983,7 +1319,7 @@ function formatMarkdown(report) {
   lines.push("");
   lines.push("```mermaid");
   lines.push("graph TD");
-  const edges = report.graph.edges.slice(0, 120);
+  const edges = report.graph.edges;
   const ids = new Map();
   let id = 0;
   const mermaidId = (value) => {
@@ -1004,12 +1340,14 @@ function escapeMermaid(value) {
 
 module.exports = {
   analyzeProject,
+  buildAliasResolver,
   buildDirectoryTree,
   countLineMetrics,
   detectFrameworks,
   extractImports,
   extractSymbols,
   formatMarkdown,
+  resolveAliasedSpecifier,
   resolveExternalDependency,
   resolveImport,
   summarizeLanguages

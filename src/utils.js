@@ -9,7 +9,11 @@ function relativePath(root, filePath) {
 }
 
 function stripQueryHash(specifier) {
-  return String(specifier || "").split("?")[0].split("#")[0];
+  const text = String(specifier || "");
+  const withoutQuery = text.split("?")[0];
+  // A leading "#" is a Node subpath import (#utils), not a hash fragment.
+  const hashIndex = withoutQuery.indexOf("#", 1);
+  return hashIndex > 0 ? withoutQuery.slice(0, hashIndex) : withoutQuery;
 }
 
 function stripExtension(filePath) {

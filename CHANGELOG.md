@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added circular dependency detection (Tarjan SCC) surfaced as an `insights.cycles` report field and a dedicated Architecture Insights panel.
+- Added tsconfig/jsconfig `paths` alias, `baseUrl`, and Node subpath (`#*`) import resolution for TypeScript and JavaScript.
+- Added CSS/SCSS/Sass/Less `@import`, `@use`, and `@forward` extraction and resolution, including Sass partials.
+- Added local import resolution for Java, Kotlin, Scala, C, C++, Ruby, PHP, Lua, C#, and Swift.
+- Fixed Python `src/`-layout package resolution.
+- Added Prisma, SQLAlchemy, and Celery framework detection.
+- Hardened the local server: binds to 127.0.0.1 by default (overridable via `HOST`).
+- Corrected project metadata; removed unrelated capability tag.
+- Expanded the analyzer and graph test suites.
 - Hardened `.gitignore` handling with negation support and fixed default `.git/` ignore matching.
 - Improved local import resolution for Go packages, Rust `crate::` imports, and CSS assets.
 - Redacted absolute local root paths from generated HTML/Markdown payloads.

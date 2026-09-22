@@ -2,6 +2,8 @@
  * Built-in benchmark sample architecture reports for interactive exploration.
  */
 
+const { computeCycles } = require("./graph");
+
 const SAMPLE_PROJECTS = {
   "nextjs-fullstack": {
     title: "VibeTrack · Full-Stack Next.js 15 & Prisma",
@@ -290,6 +292,11 @@ const SAMPLE_PROJECTS = {
     }
   }
 };
+
+for (const project of Object.values(SAMPLE_PROJECTS)) {
+  const localEdges = (project.graph.edges || []).filter((edge) => edge.kind === "local");
+  project.insights = { cycles: computeCycles(project.graph.nodes || [], localEdges, 8) };
+}
 
 module.exports = {
   SAMPLE_PROJECTS

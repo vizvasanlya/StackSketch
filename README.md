@@ -39,7 +39,7 @@ StackSketch features a web-based architecture visualizer:
 | :--- | :--- |
 | **Topology Graph** | High-performance HTML5 canvas force-directed graph with pan, zoom, cluster grouping, hover inspection, and selective edge highlighting. |
 | **File Matrix** | Comprehensive, sortable table of all source files with LOC, blank lines, comment density, size, and dependency counts. |
-| **Architecture Insights** | Structural diagnostics identifying architectural hubs (highest centrality), circular loops, and external library surfaces. |
+| **Architecture Insights** | Structural diagnostics identifying architectural hubs (highest centrality), circular dependency loops, and external library surfaces. |
 | **Inspector Drawer** | Deep dive into any node showing inbound dependents, outbound dependencies, exported symbols, and one-click path copying. |
 | **Sample Projects** | Instant exploration of diverse architectures (e.g. Next.js 15 Monorepo, FastAPI + Celery Backend). |
 | **Export Suite** | One-click export to Vector SVG, PNG Image, Markdown tables, or full JSON dataset. |
@@ -98,16 +98,23 @@ npm run dev
 StackSketch automatically recognizes over 25+ programming languages and frameworks without configuration:
 
 - **Languages**: TypeScript, JavaScript, Python, Go, Rust, Dart, Java, C#, PHP, Ruby, Swift, Kotlin, Scala, C/C++, HTML, CSS/SCSS, SQL, Shell, Dockerfile, Terraform, and YAML/TOML.
-- **Frameworks**: Next.js, React, Vue, Nuxt, Svelte, Flutter, Express, NestJS, Fastify, FastAPI, Django, Flask, SQLAlchemy, Celery, Prisma, Tailwind CSS, Actix Web, Gin, and Spring Boot.
+- **Frameworks**: Next.js, React, Vue, Nuxt, Svelte, Flutter, Express, NestJS, Fastify, Vite, FastAPI, Django, Flask, SQLAlchemy, Celery, Prisma, Tailwind CSS, Actix Web, Rocket, Gin, Echo, and Spring Boot.
 
 ### 2. Local Import & Edge Resolution
 Accurately maps inter-module dependencies for:
-- **TypeScript & JavaScript**: ESM (`import`), CommonJS (`require`), dynamic imports, alias paths, and indexed directories.
-- **Python**: Absolute, relative, and package-level module imports.
+- **TypeScript & JavaScript**: ESM (`import`), CommonJS (`require`), dynamic imports, `index` directories, tsconfig/jsconfig `paths` aliases (`@/*`), and Node subpath imports (`#*`).
+- **Python**: Absolute, relative, and package-level module imports, including `src/`-layout packaging.
 - **Go**: Package declarations and module-relative import paths.
 - **Rust**: Crate-relative paths (`crate::*`) and external crate references.
 - **Dart & Flutter**: Package imports (`package:foo/...`) and local relative imports.
-- **CSS / SCSS**: `@import` stylesheet linkages.
+- **Java, Kotlin & Scala**: JVM package imports resolved to source files.
+- **C#**: `using` statements resolved to files declaring the namespace, and `using static` resolved to type files.
+- **Swift**: Module imports (including `@testable import`) resolved to module files or module directories; Apple SDK modules filtered out.
+- **C & C++**: Quoted `#include` directives (angle-bracket includes map to system libraries).
+- **CSS / SCSS / Sass / Less**: `@import`, `@use`, and `@forward` linkages, including Sass partials (`_foo.scss`).
+- **Ruby**: `require_relative` and local `require` targets.
+- **PHP**: Namespace `use` statements and relative `require`/`include`.
+- **Lua**: `require`, `dofile`, and `loadfile` targets.
 
 ### 3. Privacy-First & Zero Egress
 StackSketch runs entirely on your local machine. No code, telemetry, or metadata ever leaves your system. No API keys, cloud accounts, or third-party tracking are involved.
@@ -249,6 +256,9 @@ The exported JSON dataset provides a clean representation of codebase structure:
     "edges": [
       { "source": "src/analyzer.js", "target": "src/defaults.js", "kind": "local" }
     ]
+  },
+  "insights": {
+    "cycles": [{ "id": "cycle-0", "nodes": ["src/a.js", "src/b.js"] }]
   }
 }
 ```
