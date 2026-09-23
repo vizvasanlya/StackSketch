@@ -30,3 +30,6 @@ stacksketch.md
 stacksketch.json
 tmp
 temp
+
+# Claude Code local session data (config, plans, memory)
+.claude/
