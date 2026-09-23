@@ -190,15 +190,18 @@ function renderHtml(report) {
     /* Layout structure */
     .app {
       display: grid;
-      grid-template-rows: 56px 1fr;
+      grid-template-rows: auto 1fr;
+      grid-template-columns: minmax(0, 1fr);
       height: 100vh;
-      width: 100vw;
+      width: 100%;
+      overflow-x: hidden;
       background: var(--bg);
     }
 
     /* Top navigation bar */
     .topbar {
       display: flex;
+      min-height: 56px;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
@@ -250,6 +253,37 @@ function renderHtml(report) {
       text-overflow: ellipsis;
     }
 
+    .brand-subtitle.scan-path {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      max-width: 42ch;
+    }
+
+    .snapshot-path {
+      margin-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .snapshot-path span {
+      font-size: 11px;
+      color: var(--text-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .snapshot-path code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      word-break: break-all;
+      background: var(--surface-subtle);
+      padding: 6px 8px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--surface-border);
+    }
+
     /* View Switcher Tabs */
     .nav-tabs {
       display: inline-flex;
@@ -258,6 +292,14 @@ function renderHtml(report) {
       border-radius: var(--radius-md);
       padding: 3px;
       gap: 2px;
+      max-width: 100%;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    .nav-tabs::-webkit-scrollbar {
+      display: none;
     }
 
     .nav-tab {
@@ -270,6 +312,8 @@ function renderHtml(report) {
       color: var(--text-muted);
       cursor: pointer;
       transition: all 0.12s;
+      white-space: nowrap;
+      flex: 0 0 auto;
     }
 
     .nav-tab:hover {
@@ -294,7 +338,7 @@ function renderHtml(report) {
     /* Workspace 3-column layout */
     .workspace {
       display: grid;
-      grid-template-columns: 330px 1fr 350px;
+      grid-template-columns: 330px minmax(0, 1fr) 350px;
       min-height: 0;
       height: 100%;
       overflow: hidden;
@@ -318,6 +362,18 @@ function renderHtml(report) {
       border-right: none;
       border-left: 1px solid var(--surface-border);
       padding: 16px;
+    }
+
+    /* Non-graph views (File Matrix / Insights / Tech Stack) use the whole width:
+       the graph-only sidebar + inspector are hidden so content isn't squeezed
+       into the narrow center column. */
+    .workspace.full-stage {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .workspace.full-stage .panel.sidebar,
+    .workspace.full-stage .panel.inspector {
+      display: none;
     }
 
     /* Section typography & widgets */
@@ -656,6 +712,50 @@ function renderHtml(report) {
       color: var(--warning);
     }
 
+    /* File Explorer (matrix view: tree + table) */
+    .matrix-layout {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      gap: 20px;
+      max-width: 1340px;
+      margin: 0 auto;
+      height: 100%;
+      align-items: start;
+    }
+
+    .matrix-tree {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: sticky;
+      top: 0;
+    }
+
+    .matrix-tree .tree-wrapper {
+      max-height: calc(100vh - 220px);
+      flex: 1 1 auto;
+    }
+
+    .matrix-main {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    @media (max-width: 900px) {
+      .matrix-layout {
+        grid-template-columns: minmax(0, 1fr);
+        height: auto;
+      }
+      .matrix-tree {
+        position: static;
+      }
+      .matrix-tree .tree-wrapper {
+        max-height: 280px;
+      }
+    }
+
     /* Stage Area & Canvas */
     .stage {
       display: flex;
@@ -757,10 +857,33 @@ function renderHtml(report) {
       height: 100%;
       display: block;
       cursor: grab;
+      touch-action: none;
     }
 
     canvas.dragging {
       cursor: grabbing;
+    }
+
+    .canvas-hint {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 5px 12px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-subtle);
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 999px;
+      box-shadow: var(--shadow-sm);
+      pointer-events: none;
+      z-index: 10;
+      opacity: 0.85;
+      white-space: nowrap;
+      max-width: calc(100% - 28px);
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     /* Views: Treemap, Matrix, Insights */
@@ -774,6 +897,192 @@ function renderHtml(report) {
 
     .view-container.active {
       display: block;
+    }
+
+    /* Tech Stack View */
+    .stack-view {
+      max-width: 1180px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+    }
+
+    .stack-hero h2 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+    }
+
+    .stack-hero p {
+      color: var(--text-muted);
+      font-size: 13px;
+      max-width: 640px;
+    }
+
+    .stack-kpi-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      gap: 12px;
+    }
+
+    .stack-kpi {
+      background: var(--surface-card);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .stack-kpi strong {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+
+    .stack-kpi span {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .stack-section-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    /* Segmented language proportion bar */
+    .lang-bar {
+      display: flex;
+      width: 100%;
+      height: 16px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: var(--surface-subtle);
+      border: 1px solid var(--surface-border);
+    }
+
+    .lang-bar-seg {
+      height: 100%;
+      min-width: 2px;
+      transition: filter 0.15s ease;
+    }
+
+    .lang-bar-seg:hover {
+      filter: brightness(1.15);
+    }
+
+    .lang-bar.mini {
+      height: 8px;
+      border-radius: 999px;
+      margin-bottom: 10px;
+    }
+
+    .lang-legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 8px 20px;
+      margin-top: 16px;
+    }
+
+    .lang-legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+    }
+
+    .lang-legend-row .legend-dot {
+      flex: 0 0 auto;
+    }
+
+    .lang-legend-row .lang-name {
+      font-weight: 600;
+    }
+
+    .lang-legend-row .lang-meta {
+      margin-left: auto;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      font-size: 11.5px;
+    }
+
+    .lang-legend-row .lang-pct {
+      color: var(--text);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      min-width: 42px;
+      text-align: right;
+    }
+
+    /* Technology category cards */
+    .stack-cat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+
+    .stack-cat-card {
+      background: var(--surface-card);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .stack-cat-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .stack-cat-head .cat-label {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent-text);
+    }
+
+    .stack-cat-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tech-chip {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 1px;
+      padding: 6px 11px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-subtle);
+      border: 1px solid var(--surface-border);
+      line-height: 1.25;
+    }
+
+    .tech-chip .tech-name {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .tech-chip .tech-detail {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
     }
 
     /* Inspector Card */
@@ -915,23 +1224,47 @@ function renderHtml(report) {
     /* Responsive */
     @media (max-width: 1100px) {
       .workspace {
-        grid-template-columns: 280px 1fr;
+        grid-template-columns: 280px minmax(0, 1fr);
       }
       .panel.inspector {
         display: none;
       }
     }
 
+    @media (max-width: 900px) {
+      .canvas-toolbar {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        gap: 8px;
+      }
+    }
+
     @media (max-width: 800px) {
       .topbar {
         flex-wrap: wrap;
-        height: auto;
         padding: 10px 16px;
       }
+      .brand {
+        flex: 1 1 auto;
+      }
+      .nav-tabs {
+        order: 3;
+        flex: 1 1 100%;
+      }
       .workspace {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
       }
       .panel.sidebar {
+        display: none;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .top-actions {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .canvas-controls input[type="range"] {
         display: none;
       }
     }
@@ -945,13 +1278,14 @@ function renderHtml(report) {
         <div class="logo">S</div>
         <div class="brand-meta">
           <h1 class="brand-title">${escapeHtml(report.title)}</h1>
-          <div class="brand-subtitle">StackSketch · Zero-Config Architecture Intelligence</div>
+          <div class="brand-subtitle${report.rootPath ? " scan-path" : ""}" title="${escapeAttr(report.rootPath || "StackSketch")}">${report.rootPath ? escapeHtml(report.rootPath) : "StackSketch · Zero-Config Architecture Intelligence"}</div>
         </div>
       </div>
 
       <!-- Navigation Tabs -->
       <nav class="nav-tabs" aria-label="View Switcher">
         <button class="nav-tab active" data-view="graph">Topology Graph</button>
+        <button class="nav-tab" data-view="stack">Tech Stack</button>
         <button class="nav-tab" data-view="matrix">File Matrix</button>
         <button class="nav-tab" data-view="insights">Architecture Insights</button>
       </nav>
@@ -1025,6 +1359,7 @@ function renderHtml(report) {
             <span class="section-title">Languages</span>
             <button class="ghost sm" id="toggleAllLangs" title="Toggle all languages">All</button>
           </div>
+          <div class="lang-bar mini">${renderLanguageBar(report)}</div>
           <div class="filters-list" id="languageFilters">
             ${renderLanguageFilters(report)}
           </div>
@@ -1063,17 +1398,6 @@ function renderHtml(report) {
             </table>
           </div>
         </div>
-
-        <div class="section">
-          <div class="section-header">
-            <span class="section-title">Directory Structure</span>
-            <button class="ghost sm" id="expandAllTree" title="Expand or collapse all folders">Expand</button>
-          </div>
-          <div class="tree-wrapper">
-            <div class="tree" id="directoryTree"></div>
-            <div class="tree-note" id="treeNote" style="display:none"></div>
-          </div>
-        </div>
       </aside>
 
       <!-- Center Stage -->
@@ -1099,32 +1423,45 @@ function renderHtml(report) {
               </label>
             </div>
           </div>
-          <canvas id="graph" aria-label="Architecture topology canvas"></canvas>
+          <canvas id="graph" aria-label="Architecture topology canvas" title="Drag or scroll to pan (any direction) · Shift+scroll for horizontal · Ctrl/pinch or +/− to zoom"></canvas>
+          <div class="canvas-hint">Drag or scroll to pan · Ctrl+scroll / pinch to zoom</div>
         </div>
 
-        <!-- View 2: File Matrix -->
+        <!-- View 2: File Explorer (directory tree + matrix) -->
         <div class="view-container" id="view-matrix">
-          <div style="max-width:1200px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
-            <div class="section-header">
-              <h2 style="font-size:18px;font-weight:600">Full Codebase Matrix</h2>
-              <span class="badge-counter" id="matrixCount">0 files</span>
-            </div>
-            <div class="file-table-wrapper" style="max-height:calc(100vh - 180px)">
-              <table class="file-table" id="fullMatrixTable">
-                <thead>
-                  <tr>
-                    <th>File Path</th>
-                    <th>Language</th>
-                    <th style="text-align:right">Code LOC</th>
-                    <th style="text-align:right">Blank</th>
-                    <th style="text-align:right">Comments</th>
-                    <th style="text-align:right">Size</th>
-                    <th style="text-align:right">Imports</th>
-                    <th style="text-align:right">Symbols</th>
-                  </tr>
-                </thead>
-                <tbody id="matrixTableBody"></tbody>
-              </table>
+          <div class="matrix-layout">
+            <aside class="matrix-tree">
+              <div class="section-header">
+                <span class="section-title">Directory Structure</span>
+                <button class="ghost sm" id="expandAllTree" title="Expand or collapse all folders">Expand</button>
+              </div>
+              <div class="tree-wrapper">
+                <div class="tree" id="directoryTree"></div>
+              </div>
+              <div class="tree-note" id="treeNote" style="display:none"></div>
+            </aside>
+            <div class="matrix-main">
+              <div class="section-header">
+                <h2 style="font-size:18px;font-weight:600">Full Codebase Matrix</h2>
+                <span class="badge-counter" id="matrixCount">0 files</span>
+              </div>
+              <div class="file-table-wrapper" style="max-height:calc(100vh - 190px)">
+                <table class="file-table" id="fullMatrixTable">
+                  <thead>
+                    <tr>
+                      <th>File Path</th>
+                      <th>Language</th>
+                      <th style="text-align:right">Code LOC</th>
+                      <th style="text-align:right">Blank</th>
+                      <th style="text-align:right">Comments</th>
+                      <th style="text-align:right">Size</th>
+                      <th style="text-align:right">Imports</th>
+                      <th style="text-align:right">Symbols</th>
+                    </tr>
+                  </thead>
+                  <tbody id="matrixTableBody"></tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -1158,6 +1495,26 @@ function renderHtml(report) {
             </div>
           </div>
         </div>
+
+        <!-- View 4: Tech Stack -->
+        <div class="view-container" id="view-stack">
+          <div class="stack-view">
+            <div class="stack-hero">
+              <h2>Technology Stack</h2>
+              <p>A complete, categorized breakdown of the languages, frameworks, tooling, and infrastructure detected across this codebase.</p>
+            </div>
+            <div class="stack-kpi-row" id="stackKpiRow"></div>
+            <div>
+              <div class="stack-section-title">Language Composition</div>
+              <div class="lang-bar" id="stackLangBar"></div>
+              <div class="lang-legend" id="stackLangLegend"></div>
+            </div>
+            <div>
+              <div class="stack-section-title">Detected Technologies</div>
+              <div class="stack-cat-grid" id="stackCatGrid"></div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- Right Panel: Inspector -->
@@ -1175,6 +1532,7 @@ function renderHtml(report) {
             <dt>Languages</dt><dd>${escapeHtml(report.summary.languages)}</dd>
             <dt>Frameworks</dt><dd>${escapeHtml(report.summary.frameworks)}</dd>
           </div>
+          ${report.rootPath ? `<div class="snapshot-path" title="${escapeAttr(report.rootPath)}"><span>Scanned directory</span><code>${escapeHtml(report.rootPath)}</code></div>` : ""}
           <p class="inspector-desc" style="font-size:12px;color:var(--text-subtle)">
             Select any file or dependency node in the topology graph to inspect imported modules, exported public symbols, and fan-in / fan-out relationships.
           </p>
@@ -1213,6 +1571,10 @@ function renderHtml(report) {
     let nodes = report.graph.nodes || [];
     let edges = report.graph.edges || [];
     let layout = computeLayout(nodes, edges);
+
+    let cachedVisibleNodes = null;
+    let cachedVisibleEdges = null;
+    let drawScheduled = false;
 
     const state = {
       scale: 1,
@@ -1345,13 +1707,31 @@ function renderHtml(report) {
       return [node.id, node.path, node.name, node.language, ...(node.imports || []), ...(node.exports || [])].join(" ").toLowerCase();
     }
 
+    function markVisibilityDirty() {
+      cachedVisibleNodes = null;
+      cachedVisibleEdges = null;
+    }
+
     function visibleNodes() {
-      return nodes.filter(nodeVisible);
+      if (!cachedVisibleNodes) cachedVisibleNodes = nodes.filter(nodeVisible);
+      return cachedVisibleNodes;
     }
 
     function visibleEdges() {
-      const set = new Set(visibleNodes().map((node) => node.id));
-      return edges.filter((edge) => set.has(edge.source) && set.has(edge.target));
+      if (!cachedVisibleEdges) {
+        const set = new Set(visibleNodes().map((node) => node.id));
+        cachedVisibleEdges = edges.filter((edge) => set.has(edge.source) && set.has(edge.target));
+      }
+      return cachedVisibleEdges;
+    }
+
+    function scheduleDraw() {
+      if (drawScheduled) return;
+      drawScheduled = true;
+      requestAnimationFrame(() => {
+        drawScheduled = false;
+        draw();
+      });
     }
 
     function draw() {
@@ -1397,6 +1777,12 @@ function renderHtml(report) {
         const source = layout.positions.get(edge.source);
         const target = layout.positions.get(edge.target);
         if (!source || !target) continue;
+
+        // Viewport cull: skip edges whose whole span sits off one side of screen.
+        const sScreen = worldToScreen(source);
+        const tScreen = worldToScreen(target);
+        if ((sScreen.x < -80 && tScreen.x < -80) || (sScreen.x > width + 80 && tScreen.x > width + 80) ||
+            (sScreen.y < -80 && tScreen.y < -80) || (sScreen.y > height + 80 && tScreen.y > height + 80)) continue;
 
         const isSelectedEdge = state.selected && (edge.source === state.selected || edge.target === state.selected);
         const isDimmed = state.selected && !isSelectedEdge;
@@ -1447,8 +1833,15 @@ function renderHtml(report) {
           ctx.fillStyle = isDark ? "#14b8a6" : "#0d9488";
           ctx.fill();
         } else {
+          const nodeRadius = radius + (isHovered ? 2 : 0);
+          // Contrast halo: a light backing in dark mode / dark backing in light mode
+          // so dark language colors (Markdown, Ruby, PowerShell...) stay visible.
           ctx.beginPath();
-          ctx.arc(point.x, point.y, radius + (isHovered ? 2 : 0), 0, Math.PI * 2);
+          ctx.arc(point.x, point.y, nodeRadius + 1.5 / state.scale, 0, Math.PI * 2);
+          ctx.fillStyle = isDark ? "rgba(226, 232, 240, 0.92)" : "rgba(15, 23, 42, 0.55)";
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, nodeRadius, 0, Math.PI * 2);
           ctx.fillStyle = languageColors[node.language] || languageColors.Unknown || "#64748b";
           ctx.fill();
         }
@@ -1461,7 +1854,7 @@ function renderHtml(report) {
             ? (isDark ? "#818cf8" : "#4f46e5")
             : isHovered
               ? "#f59e0b"
-              : (isDark ? "rgba(255, 255, 255, 0.35)" : "rgba(0, 0, 0, 0.2)");
+              : (isDark ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.32)");
         ctx.stroke();
         ctx.restore();
 
@@ -1563,6 +1956,7 @@ function renderHtml(report) {
             <dt>Languages</dt><dd>\${escapeHtml(report.summary.languages)}</dd>
             <dt>Frameworks</dt><dd>\${escapeHtml(report.summary.frameworks)}</dd>
           </div>
+          \${report.rootPath ? \`<div class="snapshot-path" title="\${escapeAttr(report.rootPath)}"><span>Scanned directory</span><code>\${escapeHtml(report.rootPath)}</code></div>\` : ""}
           <p class="inspector-desc" style="font-size:12px;color:var(--text-subtle);margin-top:12px">
             Click any node to inspect imports, symbols, LOC, blank lines, comments, and dependency relationships.
           </p>
@@ -1697,29 +2091,49 @@ function renderHtml(report) {
       const attraction = 0.01;
       const desiredDistance = 155;
       const centerForce = 0.006;
-
+      const cellSize = 240;
+      const useGrid = nodeArray.length > 160;
+      const layoutStart = Date.now();
+      const applyPairForce = (a, b) => {
+        let dx = a.x - b.x;
+        let dy = a.y - b.y;
+        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+        const minDistance = a.r + b.r + 24;
+        const force = distance < minDistance ? (minDistance - distance) * 0.22 : repulsion / (distance * distance);
+        dx = (dx / distance) * force;
+        dy = (dy / distance) * force;
+        a.vx += dx; a.vy += dy;
+        b.vx -= dx; b.vy -= dy;
+      };
       for (let iteration = 0; iteration < iterations; iteration += 1) {
-        for (let i = 0; i < nodeArray.length; i += 1) {
-          const a = nodeArray[i];
-          for (let j = i + 1; j < nodeArray.length; j += 1) {
-            const b = nodeArray[j];
-            let dx = a.x - b.x;
-            let dy = a.y - b.y;
-            let distance = Math.sqrt(dx * dx + dy * dy) || 1;
-            const minDistance = a.r + b.r + 24;
-            if (distance < minDistance) {
-              const force = (minDistance - distance) * 0.22;
-              dx = (dx / distance) * force;
-              dy = (dy / distance) * force;
-              a.vx += dx; a.vy += dy;
-              b.vx -= dx; b.vy -= dy;
-            } else {
-              const force = repulsion / (distance * distance);
-              dx = (dx / distance) * force;
-              dy = (dy / distance) * force;
-              a.vx += dx; a.vy += dy;
-              b.vx -= dx; b.vy -= dy;
+        if (useGrid) {
+          const grid = new Map();
+          for (let i = 0; i < nodeArray.length; i += 1) {
+            const node = nodeArray[i];
+            const key = Math.floor(node.x / cellSize) + ":" + Math.floor(node.y / cellSize);
+            let bucket = grid.get(key);
+            if (!bucket) { bucket = []; grid.set(key, bucket); }
+            bucket.push(i);
+          }
+          for (let i = 0; i < nodeArray.length; i += 1) {
+            const a = nodeArray[i];
+            const cx = Math.floor(a.x / cellSize);
+            const cy = Math.floor(a.y / cellSize);
+            for (let ox = -1; ox <= 1; ox += 1) {
+              for (let oy = -1; oy <= 1; oy += 1) {
+                const bucket = grid.get((cx + ox) + ":" + (cy + oy));
+                if (!bucket) continue;
+                for (let k = 0; k < bucket.length; k += 1) {
+                  if (bucket[k] <= i) continue;
+                  applyPairForce(a, nodeArray[bucket[k]]);
+                }
+              }
             }
+          }
+        } else {
+          for (let i = 0; i < nodeArray.length; i += 1) {
+            const a = nodeArray[i];
+            for (let j = i + 1; j < nodeArray.length; j += 1) applyPairForce(a, nodeArray[j]);
           }
         }
 
@@ -1752,6 +2166,8 @@ function renderHtml(report) {
             node.y = (node.y / nodeDistance) * limit;
           }
         });
+
+        if (iteration >= 30 && Date.now() - layoutStart > 400) break;
       }
 
       nodeArray.forEach((node) => positions.set(node.id, { x: node.x, y: node.y, r: node.r }));
@@ -1832,19 +2248,51 @@ function renderHtml(report) {
     }
 
     // Canvas interactions
+    function zoomAt(mouse, factor) {
+      const before = screenToWorld(mouse);
+      state.scale = Math.max(0.05, Math.min(4, state.scale * factor));
+      state.tx = mouse.x - before.x * state.scale;
+      state.ty = mouse.y - before.y * state.scale;
+    }
+
     canvas.addEventListener("wheel", (event) => {
       event.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const mouse = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-      const before = screenToWorld(mouse);
-      const factor = event.deltaY < 0 ? 1.12 : 0.88;
-      state.scale = Math.max(0.05, Math.min(4, state.scale * factor));
-      state.tx = mouse.x - before.x * state.scale;
-      state.ty = mouse.y - before.y * state.scale;
-      draw();
+      // Pinch (trackpad sets ctrlKey) or Ctrl/Cmd + wheel => zoom at cursor
+      if (event.ctrlKey || event.metaKey) {
+        zoomAt(mouse, event.deltaY < 0 ? 1.12 : 0.88);
+        scheduleDraw();
+        return;
+      }
+      // Otherwise scroll pans the map on both axes (up/down and left/right),
+      // so a plain wheel moves vertically and a trackpad swipe moves in any
+      // direction. Shift + vertical wheel pans horizontally for mouse-only users.
+      if (event.shiftKey && event.deltaX === 0) {
+        state.tx -= event.deltaY;
+      } else {
+        state.tx -= event.deltaX;
+        state.ty -= event.deltaY;
+      }
+      scheduleDraw();
     }, { passive: false });
 
-    canvas.addEventListener("mousedown", (event) => {
+    const activePointers = new Map();
+    let pinchStartDist = 0;
+    let pinchStartScale = 1;
+
+    canvas.addEventListener("pointerdown", (event) => {
+      canvas.setPointerCapture(event.pointerId);
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (activePointers.size === 2) {
+        const pts = [...activePointers.values()];
+        pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+        pinchStartScale = state.scale;
+        state.dragging = false;
+        state.dragStart = null;
+        canvas.classList.remove("dragging");
+        return;
+      }
       const node = pickNode(event);
       if (node) {
         selectNode(node);
@@ -1855,38 +2303,61 @@ function renderHtml(report) {
       canvas.classList.add("dragging");
     });
 
-    window.addEventListener("mousemove", (event) => {
+    canvas.addEventListener("pointermove", (event) => {
+      if (activePointers.has(event.pointerId)) {
+        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      }
+      if (activePointers.size === 2) {
+        const pts = [...activePointers.values()];
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+        const rect = canvas.getBoundingClientRect();
+        const mid = { x: (pts[0].x + pts[1].x) / 2 - rect.left, y: (pts[0].y + pts[1].y) / 2 - rect.top };
+        const before = screenToWorld(mid);
+        state.scale = Math.max(0.05, Math.min(4, pinchStartScale * (dist / pinchStartDist)));
+        state.tx = mid.x - before.x * state.scale;
+        state.ty = mid.y - before.y * state.scale;
+        scheduleDraw();
+        return;
+      }
       if (state.dragging && state.dragStart) {
         state.tx = state.dragStart.tx + event.clientX - state.dragStart.x;
         state.ty = state.dragStart.ty + event.clientY - state.dragStart.y;
-        draw();
-      } else {
+        scheduleDraw();
+      } else if (event.pointerType === "mouse") {
         const node = pickNode(event);
         if (state.hover !== (node && node.id)) {
           state.hover = node ? node.id : null;
           canvas.style.cursor = node ? "pointer" : "grab";
-          draw();
+          scheduleDraw();
         }
       }
     });
 
-    window.addEventListener("mouseup", () => {
-      state.dragging = false;
-      state.dragStart = null;
-      canvas.classList.remove("dragging");
-    });
+    function endPointer(event) {
+      activePointers.delete(event.pointerId);
+      if (activePointers.size < 2) pinchStartDist = 0;
+      if (activePointers.size === 0) {
+        state.dragging = false;
+        state.dragStart = null;
+        canvas.classList.remove("dragging");
+      }
+    }
+    canvas.addEventListener("pointerup", endPointer);
+    canvas.addEventListener("pointercancel", endPointer);
 
     searchInput.addEventListener("input", () => {
       state.query = searchInput.value.trim().toLowerCase();
+      markVisibilityDirty();
       draw();
       updateMatrixView();
     });
 
-    showExternals.addEventListener("change", draw);
+    showExternals.addEventListener("change", () => { markVisibilityDirty(); draw(); });
     showLabels.addEventListener("change", draw);
 
     languageFilters.addEventListener("change", () => {
       state.languages = new Set([...languageFilters.querySelectorAll("input:checked")].map((i) => i.value));
+      markVisibilityDirty();
       draw();
       updateMatrixView();
     });
@@ -1896,6 +2367,7 @@ function renderHtml(report) {
       const allChecked = [...inputs].every((i) => i.checked);
       inputs.forEach((i) => { i.checked = !allChecked; });
       state.languages = new Set([...languageFilters.querySelectorAll("input:checked")].map((i) => i.value));
+      markVisibilityDirty();
       draw();
       updateMatrixView();
     });
@@ -1911,7 +2383,7 @@ function renderHtml(report) {
     });
     zoomSlider.addEventListener("input", () => {
       state.scale = Math.max(0.05, Math.min(4, parseFloat(zoomSlider.value) || 1));
-      draw();
+      scheduleDraw();
     });
     document.getElementById("reset").addEventListener("click", () => {
       searchInput.value = "";
@@ -1922,6 +2394,7 @@ function renderHtml(report) {
       showLabels.checked = false;
       languageFilters.querySelectorAll("input").forEach((input) => { input.checked = true; });
       state.languages = new Set(report.stack.languages.map((item) => item.name));
+      markVisibilityDirty();
       fit();
       renderInspector(null);
     });
@@ -1935,12 +2408,16 @@ function renderHtml(report) {
         document.querySelectorAll(".view-container").forEach((vc) => vc.classList.remove("active"));
         const targetView = document.getElementById(\`view-\${view}\`);
         if (targetView) targetView.classList.add("active");
+        const workspace = document.querySelector(".workspace");
+        if (workspace) workspace.classList.toggle("full-stage", view !== "graph");
         if (view === "graph") {
           resize();
         } else if (view === "matrix") {
           updateMatrixView();
         } else if (view === "insights") {
           updateInsightsView();
+        } else if (view === "stack") {
+          updateStackView();
         }
       });
     });
@@ -2089,6 +2566,89 @@ function renderHtml(report) {
       }
     });
 
+    function stackFormatBytes(bytes) {
+      const n = Number(bytes) || 0;
+      if (n < 1024) return n + " B";
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+      return (n / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function stackCategories() {
+      if (report.stack.categories && report.stack.categories.length) {
+        return report.stack.categories;
+      }
+      // Fallback for sample reports without categorized detection.
+      const cats = [];
+      const langs = report.stack.languages || [];
+      if (langs.length) {
+        cats.push({
+          id: "languages",
+          label: "Languages",
+          items: langs.map((l) => ({ name: l.name, detail: (Number(l.percent) || 0) + "%" }))
+        });
+      }
+      const fw = report.stack.frameworks || [];
+      if (fw.length) {
+        cats.push({ id: "frameworks", label: "Frameworks", items: fw.map((f) => ({ name: f })) });
+      }
+      return cats;
+    }
+
+    function updateStackView() {
+      const summary = report.summary || {};
+      const cats = stackCategories();
+      const techCount = cats.reduce((sum, c) => sum + (c.items ? c.items.length : 0), 0);
+      const kpis = [
+        [Number(summary.scannedFiles || 0).toLocaleString(), "Source Files"],
+        [Number(summary.totalCodeLines || 0).toLocaleString(), "Code Lines"],
+        [Number(summary.importEdges || 0).toLocaleString(), "Local Edges"],
+        [Number(summary.externalDependencies || 0).toLocaleString(), "External Deps"],
+        [stackFormatBytes(summary.totalBytes), "Project Size"],
+        [String((report.stack.languages || []).length), "Languages"],
+        [String(techCount), "Technologies"]
+      ];
+      document.getElementById("stackKpiRow").innerHTML = kpis.map((pair) => \`
+        <div class="stack-kpi"><strong>\${escapeHtml(pair[0])}</strong><span>\${escapeHtml(pair[1])}</span></div>
+      \`).join("");
+      // STACK_VIEW_CONTINUE
+      const langs = (report.stack.languages || []).slice().sort((a, b) => (Number(b.percent) || 0) - (Number(a.percent) || 0));
+      document.getElementById("stackLangBar").innerHTML = langs.map((l) => {
+        const color = languageColors[l.name] || "#94a3b8";
+        const pct = Math.max(0, Number(l.percent) || 0);
+        return \`<span class="lang-bar-seg" style="width:\${pct}%;background:\${escapeAttr(color)}" title="\${escapeAttr(l.name + " · " + pct + "%")}"></span>\`;
+      }).join("");
+      document.getElementById("stackLangLegend").innerHTML = langs.map((l) => {
+        const color = languageColors[l.name] || "#94a3b8";
+        const files = Number(l.files || 0).toLocaleString();
+        const lines = Number(l.lines || 0).toLocaleString();
+        return \`
+          <div class="lang-legend-row">
+            <span class="legend-dot" style="background:\${escapeAttr(color)}"></span>
+            <span class="lang-name">\${escapeHtml(l.name)}</span>
+            <span class="lang-meta">\${files} files · \${lines} LOC</span>
+            <span class="lang-pct">\${escapeHtml((Number(l.percent) || 0) + "%")}</span>
+          </div>
+        \`;
+      }).join("");
+      document.getElementById("stackCatGrid").innerHTML = cats.map((cat) => {
+        const chips = (cat.items || []).map((item) => \`
+          <span class="tech-chip">
+            <span class="tech-name">\${escapeHtml(item.name)}</span>
+            \${item.detail ? \`<span class="tech-detail">\${escapeHtml(item.detail)}</span>\` : ""}
+          </span>
+        \`).join("");
+        return \`
+          <div class="stack-cat-card">
+            <div class="stack-cat-head">
+              <span class="cat-label">\${escapeHtml(cat.label)}</span>
+              <span class="badge-counter">\${(cat.items || []).length}</span>
+            </div>
+            <div class="stack-cat-chips">\${chips}</div>
+          </div>
+        \`;
+      }).join("");
+    }
+
     function refreshLanguageFiltersUI() {
       if (!languageFilters || !report.stack || !report.stack.languages) return;
       languageFilters.innerHTML = report.stack.languages.map((l) => \`
@@ -2192,6 +2752,7 @@ function renderHtml(report) {
         edges = report.graph.edges || [];
         layout = computeLayout(nodes, edges);
         state.languages = new Set(report.stack.languages.map((i) => i.name));
+        markVisibilityDirty();
         refreshLanguageFiltersUI();
         fit();
         renderInspector(null);
@@ -2211,6 +2772,7 @@ function renderHtml(report) {
           edges = report.graph.edges || [];
           layout = computeLayout(nodes, edges);
           state.languages = new Set(report.stack.languages.map((i) => i.name));
+          markVisibilityDirty();
           refreshLanguageFiltersUI();
           renderDirectoryTree();
           fit();
@@ -2245,8 +2807,39 @@ function renderHtml(report) {
 }
 
 function renderFrameworks(report) {
-  if (!report.stack.frameworks.length) return `<span class="chip">None detected</span>`;
-  return report.stack.frameworks.map((framework) => `<span class="chip"><b>${escapeHtml(framework)}</b></span>`).join("");
+  const frameworks = report.stack.frameworks || [];
+  if (frameworks.length) {
+    return frameworks.map((framework) => `<span class="chip"><b>${escapeHtml(framework)}</b></span>`).join("");
+  }
+  // No web framework detected — surface a few top technologies from categorized detection.
+  const categories = report.stack.categories || [];
+  const seen = new Set();
+  const fallback = [];
+  for (const category of categories) {
+    if (category.id === "frameworks") continue;
+    for (const item of category.items || []) {
+      if (seen.has(item.name)) continue;
+      seen.add(item.name);
+      fallback.push(item.name);
+      if (fallback.length >= 5) break;
+    }
+    if (fallback.length >= 5) break;
+  }
+  if (fallback.length) {
+    return fallback.map((name) => `<span class="chip">${escapeHtml(name)}</span>`).join("") +
+      `<span class="chip" style="opacity:0.7">See Tech Stack →</span>`;
+  }
+  return `<span class="chip">None detected</span>`;
+}
+
+function renderLanguageBar(report) {
+  const langs = (report.stack.languages || []).slice().sort((a, b) => (Number(b.percent) || 0) - (Number(a.percent) || 0));
+  if (!langs.length) return "";
+  return langs.map((language) => {
+    const color = LANGUAGE_COLORS[language.name] || "#94a3b8";
+    const pct = Math.max(0, Number(language.percent) || 0);
+    return `<span class="lang-bar-seg" style="width:${pct}%;background:${color}" title="${escapeAttr(language.name + " · " + pct + "%")}"></span>`;
+  }).join("");
 }
 
 function renderScanScope(report) {

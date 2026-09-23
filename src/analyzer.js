@@ -123,6 +123,13 @@ async function analyzeProject(rootPath = ".", options = {}) {
   const cycles = computeCycles(nodes, localEdges, 8);
   const languages = summarizeLanguages(fileReports);
   const frameworks = detectFrameworks(config, fileReports);
+  const stackCategories = detectStack(
+    config,
+    fileReports,
+    allFiles.map((file) => normalizeFilePath(file.relative)),
+    languages,
+    frameworks
+  );
   const topFiles = topBy(fileReports, (file) => file.score, 12);
   const directoryTree = buildDirectoryTree(fileReports);
   const totalLines = fileReports.reduce((sum, file) => sum + file.lines, 0);
@@ -134,6 +141,7 @@ async function analyzeProject(rootPath = ".", options = {}) {
   return {
     name: options.title || rootName,
     root: rootName,
+    rootPath: root,
     title: options.title || rootName,
     generatedAt: new Date().toISOString(),
     summary: {
@@ -154,7 +162,8 @@ async function analyzeProject(rootPath = ".", options = {}) {
     },
     stack: {
       languages,
-      frameworks
+      frameworks,
+      categories: stackCategories
     },
     config,
     graph: {
@@ -1125,7 +1134,62 @@ async function readConfig(root, relativeFiles) {
   }
   config.jsconfig = config.tsconfig ? null : await readTsConfig(path.join(root, "jsconfig.json"));
 
+  config.markers = await detectMarkers(root);
+
   return config;
+}
+
+// Marker files/directories that identify tooling but are frequently ignored by
+// the source scanner (lockfiles, dotfile configs) or live outside the source
+// tree. They are probed directly on disk so stack detection stays accurate.
+const MARKER_FILES = [
+  "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb",
+  "uv.lock", "poetry.lock", "Pipfile", "Pipfile.lock", "Cargo.lock",
+  "composer.lock", "Gemfile.lock",
+  "deno.json", "deno.jsonc",
+  "biome.json", "biome.jsonc",
+  ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json", ".eslintrc.yml", ".eslintrc.yaml",
+  "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs",
+  ".prettierrc", ".prettierrc.json", ".prettierrc.js", ".prettierrc.yml", "prettier.config.js",
+  "ruff.toml", ".ruff.toml", ".flake8", "mypy.ini",
+  ".babelrc", ".babelrc.json", "babel.config.js", "babel.config.json", "babel.config.cjs",
+  "postcss.config.js", "postcss.config.cjs", "postcss.config.mjs",
+  "vite.config.js", "vite.config.ts", "webpack.config.js", "webpack.config.ts",
+  "rollup.config.js", "rollup.config.mjs",
+  "tailwind.config.js", "tailwind.config.ts", "tailwind.config.cjs",
+  "Dockerfile", "dockerfile",
+  "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml",
+  ".gitlab-ci.yml", ".travis.yml", "azure-pipelines.yml", "Jenkinsfile", "serverless.yml",
+  "vercel.json", "netlify.toml"
+];
+
+const MARKER_DIRS = [
+  ".github/workflows", ".circleci",
+  "k8s", "kubernetes", "helm", "charts", "terraform", ".husky"
+];
+
+async function detectMarkers(root) {
+  const markers = {};
+  await Promise.all([
+    ...MARKER_FILES.map(async (rel) => {
+      markers[rel] = await pathExists(path.join(root, rel), "file");
+    }),
+    ...MARKER_DIRS.map(async (rel) => {
+      markers[rel] = await pathExists(path.join(root, rel), "dir");
+    })
+  ]);
+  return markers;
+}
+
+async function pathExists(target, kind) {
+  try {
+    const stat = await fs.stat(target);
+    if (kind === "dir") return stat.isDirectory();
+    if (kind === "file") return stat.isFile();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function readTsConfig(filePath, seen = new Set()) {
@@ -1234,6 +1298,205 @@ function detectFrameworks(config, fileReports) {
   return [...frameworks].sort();
 }
 
+// Builds the categorized technology stack (runtime, testing, build, styling,
+// data, quality, package managers, CI, infra). Framework detection is reused
+// from detectFrameworks so the flat report.stack.frameworks array is unchanged;
+// this only layers additional, optional categories on top.
+function detectStack(config, fileReports, allFilePaths, languages, frameworks) {
+  const pkg = config.packageJson || {};
+  const deps = new Set();
+  for (const section of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+    if (pkg[section]) {
+      for (const name of Object.keys(pkg[section])) deps.add(name);
+    }
+  }
+  const scriptsText = pkg.scripts ? Object.values(pkg.scripts).join(" \n ").toLowerCase() : "";
+  const pmField = typeof pkg.packageManager === "string" ? pkg.packageManager.toLowerCase() : "";
+  const nodeVersion = pkg.engines && pkg.engines.node;
+  const requirements = new Set((config.requirements || []).map((item) => item.toLowerCase()));
+  const pyproject = (config.pyproject || "").toLowerCase();
+  const goMod = (config.goMod || "").toLowerCase();
+  const gemfile = (config.gemfile || "").toLowerCase();
+  const markers = config.markers || {};
+  const langs = new Set(languages.map((language) => language.name));
+  const lowerFiles = (allFilePaths || []).map((filePath) => filePath.toLowerCase());
+  const importSpecifiers = new Set();
+  for (const file of fileReports) {
+    for (const specifier of file.imports || []) importSpecifiers.add(specifier);
+  }
+
+  const hasDep = (name) => deps.has(name);
+  const hasDepPrefix = (prefix) => [...deps].some((name) => name.startsWith(prefix));
+  const marker = (name) => Boolean(markers[name]);
+  const hasFile = (predicate) => lowerFiles.some(predicate);
+  const pyHas = (name) =>
+    pyproject.includes(name) || requirements.has(name) || [...requirements].some((item) => item.startsWith(name + "=") || item.startsWith(name + ">") || item.startsWith(name + "<") || item.startsWith(name + "~") || item.startsWith(name + "["));
+
+  const groups = new Map();
+  const add = (id, label, name, detail) => {
+    if (!name) return;
+    if (!groups.has(id)) groups.set(id, { id, label, items: new Map() });
+    const items = groups.get(id).items;
+    if (!items.has(name)) items.set(name, { name, detail: detail || "" });
+    else if (detail && !items.get(name).detail) items.get(name).detail = detail;
+  };
+
+  // Runtime & Platform
+  const RT = "Runtime & Platform";
+  if (config.packageJson || langs.has("JavaScript") || langs.has("TypeScript")) {
+    add("runtime", RT, "Node.js", nodeVersion ? `requires ${nodeVersion}` : "");
+  }
+  if (marker("deno.json") || marker("deno.jsonc")) add("runtime", RT, "Deno");
+  if (marker("bun.lockb")) add("runtime", RT, "Bun");
+  if (langs.has("Python")) {
+    const match = pyproject.match(/requires-python\s*=\s*["']([^"']+)["']/);
+    add("runtime", RT, "Python", match ? `requires ${match[1]}` : "");
+  }
+  if (langs.has("Go") || config.goMod) {
+    const match = goMod.match(/(?:^|\n)go\s+([\d.]+)/);
+    add("runtime", RT, "Go", match ? `go ${match[1]}` : "");
+  }
+  if (langs.has("Rust") || config.cargoToml) add("runtime", RT, "Rust");
+  if (langs.has("Java")) add("runtime", RT, "Java (JVM)");
+  if (langs.has("Kotlin")) add("runtime", RT, "Kotlin (JVM)");
+  if (langs.has("Scala")) add("runtime", RT, "Scala (JVM)");
+  if (langs.has("C#")) add("runtime", RT, ".NET / C#");
+  if (langs.has("PHP")) add("runtime", RT, "PHP");
+  if (langs.has("Ruby")) add("runtime", RT, "Ruby");
+  if (langs.has("Dart")) add("runtime", RT, "Dart");
+  if (langs.has("Swift")) add("runtime", RT, "Swift");
+
+  // Frameworks (reuse the flat list, then enrich with a few common extras)
+  const FW = "Frameworks";
+  for (const framework of frameworks) add("frameworks", FW, framework);
+  if (hasDep("@angular/core")) add("frameworks", FW, "Angular");
+  if (hasDep("astro")) add("frameworks", FW, "Astro");
+  if (hasDep("@remix-run/react") || hasDep("@remix-run/node")) add("frameworks", FW, "Remix");
+  if (hasDep("solid-js")) add("frameworks", FW, "SolidJS");
+  if (hasDep("gatsby")) add("frameworks", FW, "Gatsby");
+  if (hasDep("@sveltejs/kit")) add("frameworks", FW, "SvelteKit");
+  if (hasDep("koa")) add("frameworks", FW, "Koa");
+  if (hasDep("@hapi/hapi")) add("frameworks", FW, "hapi");
+  if (hasDep("electron")) add("frameworks", FW, "Electron");
+  if (hasDep("react-native") || hasDep("expo")) add("frameworks", FW, "React Native");
+  if (hasDep("@tauri-apps/api")) add("frameworks", FW, "Tauri");
+
+  // Testing
+  const TS = "Testing";
+  if (hasDep("jest") || scriptsText.includes("jest")) add("testing", TS, "Jest");
+  if (hasDep("vitest") || scriptsText.includes("vitest")) add("testing", TS, "Vitest");
+  if (hasDep("mocha")) add("testing", TS, "Mocha");
+  if (hasDep("@playwright/test") || hasDep("playwright")) add("testing", TS, "Playwright");
+  if (hasDep("cypress")) add("testing", TS, "Cypress");
+  if (hasDepPrefix("@testing-library/")) add("testing", TS, "Testing Library");
+  if (importSpecifiers.has("node:test") || scriptsText.includes("node --test") || scriptsText.includes("node:test")) {
+    add("testing", TS, "node:test", "built-in");
+  }
+  if (pyHas("pytest")) add("testing", TS, "pytest");
+  if (hasFile((filePath) => filePath.endsWith("_test.go"))) add("testing", TS, "Go test", "built-in");
+  if (gemfile.includes("rspec")) add("testing", TS, "RSpec");
+
+  // Build & Bundlers
+  const BLD = "Build & Bundlers";
+  if (hasDep("typescript") || config.tsconfig) add("build", BLD, "TypeScript", config.tsconfig ? "tsconfig" : "");
+  if (hasDep("vite") || marker("vite.config.js") || marker("vite.config.ts")) add("build", BLD, "Vite");
+  if (hasDep("webpack") || marker("webpack.config.js") || marker("webpack.config.ts")) add("build", BLD, "webpack");
+  if (hasDep("rollup") || marker("rollup.config.js") || marker("rollup.config.mjs")) add("build", BLD, "Rollup");
+  if (hasDep("esbuild")) add("build", BLD, "esbuild");
+  if (hasDep("parcel")) add("build", BLD, "Parcel");
+  if (hasDep("turbo")) add("build", BLD, "Turborepo");
+  if (hasDep("@babel/core") || marker(".babelrc") || marker(".babelrc.json") || marker("babel.config.js") || marker("babel.config.json") || marker("babel.config.cjs")) add("build", BLD, "Babel");
+  if (hasDep("@swc/core") || hasDep("@swc/cli")) add("build", BLD, "SWC");
+  if (config.gradle) add("build", BLD, "Gradle");
+  if (hasFile((filePath) => filePath.endsWith("pom.xml"))) add("build", BLD, "Maven");
+
+  // Styling
+  const STY = "Styling";
+  if (hasDep("tailwindcss") || marker("tailwind.config.js") || marker("tailwind.config.ts") || marker("tailwind.config.cjs")) add("styling", STY, "Tailwind CSS");
+  if (hasDep("styled-components")) add("styling", STY, "styled-components");
+  if (hasDep("@emotion/react") || hasDep("@emotion/styled") || hasDep("@emotion/css")) add("styling", STY, "Emotion");
+  if (hasDep("sass") || langs.has("SCSS") || langs.has("Sass") || hasFile((filePath) => filePath.endsWith(".scss") || filePath.endsWith(".sass"))) add("styling", STY, "Sass / SCSS");
+  if (hasDep("postcss") || marker("postcss.config.js") || marker("postcss.config.cjs") || marker("postcss.config.mjs")) add("styling", STY, "PostCSS");
+  if (hasFile((filePath) => filePath.endsWith(".module.css") || filePath.endsWith(".module.scss"))) add("styling", STY, "CSS Modules");
+  if (hasDep("less") || langs.has("Less")) add("styling", STY, "Less");
+
+  // Data & ORM
+  const DAT = "Data & ORM";
+  if (hasDep("prisma") || hasDep("@prisma/client") || hasFile((filePath) => filePath.endsWith("schema.prisma"))) add("data", DAT, "Prisma");
+  if (hasDep("drizzle-orm")) add("data", DAT, "Drizzle");
+  if (hasDep("typeorm")) add("data", DAT, "TypeORM");
+  if (hasDep("mongoose")) add("data", DAT, "Mongoose");
+  if (hasDep("sequelize")) add("data", DAT, "Sequelize");
+  if (hasDep("knex")) add("data", DAT, "Knex");
+  if (pyHas("sqlalchemy")) add("data", DAT, "SQLAlchemy");
+  if (hasDep("pg") || hasDep("postgres")) add("data", DAT, "PostgreSQL");
+  if (hasDep("mysql") || hasDep("mysql2")) add("data", DAT, "MySQL");
+  if (hasDep("mongodb")) add("data", DAT, "MongoDB");
+  if (hasDep("redis") || hasDep("ioredis")) add("data", DAT, "Redis");
+  if (hasDep("better-sqlite3") || hasDep("sqlite3")) add("data", DAT, "SQLite");
+  if (langs.has("SQL")) add("data", DAT, "SQL");
+
+  // Code Quality
+  const QUA = "Code Quality";
+  if (hasDep("eslint") || marker(".eslintrc") || marker(".eslintrc.js") || marker(".eslintrc.cjs") || marker(".eslintrc.json") || marker(".eslintrc.yml") || marker(".eslintrc.yaml") || marker("eslint.config.js") || marker("eslint.config.mjs") || marker("eslint.config.cjs")) add("quality", QUA, "ESLint");
+  if (hasDep("prettier") || marker(".prettierrc") || marker(".prettierrc.json") || marker(".prettierrc.js") || marker(".prettierrc.yml") || marker("prettier.config.js")) add("quality", QUA, "Prettier");
+  if (hasDep("@biomejs/biome") || marker("biome.json") || marker("biome.jsonc")) add("quality", QUA, "Biome");
+  if (pyHas("ruff") || marker("ruff.toml") || marker(".ruff.toml")) add("quality", QUA, "Ruff");
+  if (pyHas("black")) add("quality", QUA, "Black");
+  if (pyHas("flake8") || marker(".flake8")) add("quality", QUA, "Flake8");
+  if (pyHas("mypy") || marker("mypy.ini")) add("quality", QUA, "mypy");
+  if (hasDep("husky") || marker(".husky")) add("quality", QUA, "Husky");
+
+  // Package Managers
+  const PM = "Package Managers";
+  if (marker("pnpm-lock.yaml") || pmField.startsWith("pnpm")) add("pkg", PM, "pnpm");
+  else if (marker("yarn.lock") || pmField.startsWith("yarn")) add("pkg", PM, "Yarn");
+  else if (marker("bun.lockb")) add("pkg", PM, "Bun");
+  else if (marker("package-lock.json") || config.packageJson) add("pkg", PM, "npm");
+  if (pyproject.includes("[tool.poetry]") || pyHas("poetry")) add("pkg", PM, "Poetry");
+  if (marker("uv.lock")) add("pkg", PM, "uv");
+  if (marker("Pipfile") || marker("Pipfile.lock")) add("pkg", PM, "Pipenv");
+  if (config.requirements && config.requirements.length) add("pkg", PM, "pip");
+  if (config.cargoToml || marker("Cargo.lock")) add("pkg", PM, "Cargo");
+  if (config.goMod) add("pkg", PM, "Go Modules");
+  if (marker("composer.lock") || config.composer || hasFile((filePath) => filePath.endsWith("composer.json"))) add("pkg", PM, "Composer");
+  if (marker("Gemfile.lock") || hasFile((filePath) => filePath === "gemfile" || filePath.endsWith("/gemfile"))) add("pkg", PM, "Bundler");
+
+  // CI / CD
+  const CI = "CI / CD";
+  if (marker(".github/workflows")) add("ci", CI, "GitHub Actions");
+  if (marker(".gitlab-ci.yml")) add("ci", CI, "GitLab CI");
+  if (marker(".circleci")) add("ci", CI, "CircleCI");
+  if (marker(".travis.yml")) add("ci", CI, "Travis CI");
+  if (marker("azure-pipelines.yml")) add("ci", CI, "Azure Pipelines");
+  if (marker("Jenkinsfile")) add("ci", CI, "Jenkins");
+
+  // Infrastructure
+  const INF = "Infrastructure";
+  if (marker("Dockerfile") || marker("dockerfile")) add("infra", INF, "Docker");
+  if (marker("docker-compose.yml") || marker("docker-compose.yaml") || marker("compose.yml") || marker("compose.yaml")) add("infra", INF, "Docker Compose");
+  if (marker("k8s") || marker("kubernetes")) add("infra", INF, "Kubernetes");
+  if (marker("helm") || marker("charts")) add("infra", INF, "Helm");
+  if (langs.has("Terraform") || marker("terraform") || hasFile((filePath) => filePath.endsWith(".tf"))) add("infra", INF, "Terraform");
+  if (marker("serverless.yml")) add("infra", INF, "Serverless");
+  if (marker("vercel.json")) add("infra", INF, "Vercel");
+  if (marker("netlify.toml")) add("infra", INF, "Netlify");
+
+  const order = ["runtime", "frameworks", "testing", "build", "styling", "data", "quality", "pkg", "ci", "infra"];
+  const categories = [];
+  for (const id of order) {
+    const group = groups.get(id);
+    if (group && group.items.size) {
+      categories.push({
+        id: group.id,
+        label: group.label,
+        items: [...group.items.values()].sort((a, b) => a.name.localeCompare(b.name))
+      });
+    }
+  }
+  return categories;
+}
+
 function buildDirectoryTree(fileReports) {
   const tree = { name: ".", type: "directory", children: new Map() };
 
@@ -1301,6 +1564,15 @@ function formatMarkdown(report) {
     lines.push("Frameworks: not detected");
   }
   lines.push("");
+  if (report.stack.categories && report.stack.categories.length) {
+    for (const category of report.stack.categories) {
+      const items = category.items
+        .map((item) => (item.detail ? `${item.name} (${item.detail})` : item.name))
+        .join(", ");
+      lines.push(`- **${escapeHtml(category.label)}:** ${escapeHtml(items)}`);
+    }
+    lines.push("");
+  }
   lines.push("| Language | Files | Lines | Share |");
   lines.push("| --- | ---: | ---: | ---: |");
   for (const language of report.stack.languages) {
